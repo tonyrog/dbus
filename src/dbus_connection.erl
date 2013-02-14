@@ -88,7 +88,7 @@ open() ->
     case os:type() of
 	{unix, darwin} ->
 	    open("launchd:env=DBUS_LAUNCHD_SESSION_BUS_SOCKET");
-	{unix, linix} ->
+	{unix, linux} ->
 	    open("unix:path=/var/run/dbus/system_bus_socket")
     end.
 
