@@ -1,0 +1,103 @@
+%% -*- erlang -*-
+%%   Simple interface description for  DBus
+%%
+
+{interface, 'org.freedesktop.DBus',
+ [
+  %% Before an application is able to send messages to other applications it 
+  %% must send the org.freedesktop.DBus.Hello message to the message bus to 
+  %% obtain a unique name. If an application without a unique name tries to
+  %% send a message to another application, or a message to the message bus 
+  %% itself that isn't the org.freedesktop.DBus.Hello message, it will be 
+  %% disconnected from the bus.
+  {method, 'Hello', [], [{string, connection_name}]},
+
+  %% This method call should be sent to org.freedesktop.DBus and asks the 
+  %% message bus to assign the given name to the method caller. 
+  %% Each name maintains a queue of possible owners, where the head of the 
+  %% queue is the primary or current owner of the name. Each potential owner 
+  %% in the queue maintains the 'allow_replacement' and 
+  %% 'do_not_queue' settings from its latest RequestName call.
+  {method, 'RequestName', [{string,name},
+  			   {{bits,uint32,
+			     [{allow_replacment,16#1},
+			      {replace_existing,16#2},
+			      {do_not_queue,16#4}]}, flags}],
+   {{enum,uint32,
+     [{primary_owner,1},
+      {in_queue,2},
+      {exists,3},
+      {already_owner,4}]}, reply}},
+
+  %% This method call should be sent to org.freedesktop.DBus and asks the 
+  %% message bus to release the method caller's claim to the given name. 
+  %% If the caller is the primary owner, a new primary owner will be selected 
+  %% from the queue if any other owners are waiting. If the caller is waiting 
+  %% in the queue for the name, the caller will removed from the queue and
+  %% will not be made an owner of the name if it later becomes available. 
+  %% If there are no other owners in the queue for the name, it will be 
+  %% removed from the bus entirely
+  {method,'ReleaseName', [{string,name}],
+   [{{enum,uint32,
+      [{released,1},
+       {non_existent,2},
+       {not_owner,3}]}, reply}]},
+
+  %% This method call should be sent to org.freedesktop.DBus and lists the 
+  %% connections currently queued for a bus name.
+  {method, 'ListQueuedOwners', [{string,name}],
+   [{{array,string},owners}]},
+
+  %% Returns a list of all currently-owned names on the bus.
+  {method, 'ListNames', [], [{{array,string}, names}]},
+
+  %% Returns a list of all names that can be activated on the bus.
+  {method, 'ListActivatableNames', [], [{{array,string}, names}]},
+
+  %% Checks if the specified name exists (currently has an owner).
+  {method, 'NameHasOwner', [{string,name}], [{boolean, has_owner}]},
+
+  %% This signal indicates that the owner of a name has changed. 
+  %% It's also the signal to use to detect the appearance of new names on 
+  %% the bus.
+  {signal, 'NameOwnerChanged', [{string,name}, {string,old_owner},
+				{string, new_owner}]},
+
+  %% This signal is sent to a specific application when it 
+  %% loses ownership of a name.
+  {signal, 'NameLost', [{string,name}]},
+
+  %% This signal is sent to a specific application when it gains 
+  %% ownership of a name.
+  {signal, 'NameAcquired', [{string,name}]},
+  
+  %% Tries to launch the executable associated with a name. 
+  %% Return value
+  %%  1 The service was successfully started.
+  %%  2 A connection already owns the given name.
+  %%
+
+  {method, 'StartServiceByName', 
+   [{string, name},{uint32, flags}],
+   [{uint32,resultcode}]},
+
+  {method, 'UpdateActivationEnvironment', 
+   [{{dict,string,string}, environment}], []},
+
+  {method, 'GetNameOwner', [{string,name}], [{string, owner}]},
+
+  {method, 'GetConnectionUnixUser', 
+   [{string, bus_name}], 
+   [{uint32,uid}]},
+
+  {method, 'GetConnectionUnixProcessID', 
+   [{string, bus_name}], 
+   [{uint32, pid}]},
+  
+  {method, 'AddMatch',  [{string, rule}],  []},
+
+  {method, 'RemoveMatch', [{string, rule}], []},
+
+  {method, 'GetId', [], [{string,id}]}
+
+] }.

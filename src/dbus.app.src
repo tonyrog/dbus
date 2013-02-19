@@ -1,0 +1,12 @@
+{application, dbus,
+ [
+  {description, ""},
+  {vsn, git},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { dbus_app, []}},
+  {env, []}
+ ]}.
