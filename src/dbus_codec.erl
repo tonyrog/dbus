@@ -26,6 +26,7 @@
 -compile(export_all).
 
 -include("../include/dbus.hrl").
+-import(lists, [map/2,append/1,reverse/1]).
 
 -define(is_unsigned(X,N), ((X) band (bnot ((1 bsl (N))-1)) =:= 0)).
 -define(is_signed(X,N), 
@@ -87,8 +88,8 @@ alignment([?DBUS_INT64|_])            -> 8;
 alignment([?DBUS_UINT64|_])           -> 8;
 alignment([?DBUS_DOUBLE|_])           -> 8;
 alignment([?DBUS_STRING|_])           -> 4;  %% 4-byte length
-alignment([?DBUS_OBJPATH|_])          -> 4; %% 4-byte length
-alignment([?DBUS_SIGNATURE|_])        -> 1; %% 1-byte length
+alignment([?DBUS_OBJPATH|_])          -> 4;  %% 4-byte length
+alignment([?DBUS_SIGNATURE|_])        -> 1;  %% 1-byte length
 alignment([?DBUS_ARRAY|_])            -> 4;  %% length
 alignment([?DBUS_STRUCT|_])           -> 8;
 alignment([?DBUS_STRUCT_BEGIN|_])     -> 8;
@@ -263,12 +264,12 @@ encode_array_elements_little(Y,Es,[X|Xs],Acc) ->
     {V,Y1} = encode_little(Y,Es,X),
     encode_array_elements_little(Y1,Es,Xs,[V|Acc]);
 encode_array_elements_little(Y,_Es,[],Acc) ->
-    {lists:reverse(Acc),Y}.
+    {reverse(Acc),Y}.
 
 encode_struct_little(Y,Es,I,X,Acc) ->
     case next_argument(Es) of
 	{")",""}   -> 
-	    {lists:reverse(Acc),Y};
+	    {reverse(Acc),Y};
 	{Spec,Es1} ->
 	    {Data,Y1} = encode_little(Y,Spec,element(I,X)),
 	    encode_struct_little(Y1,Es1,I+1,X,[Data|Acc])
@@ -394,13 +395,13 @@ encode_array_elements_big(Y,Es,[X|Xs],Acc) ->
     {V,Y1} = encode_big(Y,Es,X),
     encode_array_elements_big(Y1,Es,Xs,[V|Acc]);
 encode_array_elements_big(Y,_Es,[],Acc) ->
-    {lists:reverse(Acc),Y}.
+    {reverse(Acc),Y}.
 
 
 encode_struct_big(Y,Es,I,X,Acc) ->
     case next_argument(Es) of
 	{")",""}   -> 
-	    {lists:reverse(Acc),Y};
+	    {reverse(Acc),Y};
 	{Spec,Es1} ->
 	    {Data,Y1} = encode_big(Y,Spec,element(I,X)),
 	    encode_struct_big(Y1,Es1,I+1,X,[Data|Acc])
@@ -432,6 +433,12 @@ decode_signature_big(Y, Es, Bin0) ->
     {Xs,Y2,Bin2} = decode_signature_big(Y1,Es1,Bin1),
     {[X|Xs],Y2,Bin2}.
 
+decode(Signature,Bin) ->
+    decode(erlang:system_info(endian),Signature,Bin).
+
+decode(Endian,Signature,Bin) ->
+    decode(Endian,0,Signature,Bin).
+    
 
 decode(little, Y, Type, Bin) ->
     decode_little(Y, Type, Bin);
@@ -535,13 +542,13 @@ decode_little(Y,[?DBUS_DICT_ENTRY_BEGIN|Es],Bin) ->
 decode_little(Y,[?DBUS_VARIANT],Bin) ->
     {Signature,Y1,Bin1} = decode_little(Y,[?DBUS_SIGNATURE],Bin),
     {Value,Y2,Bin2} = decode_little(Y1,Signature,Bin1),
-    {{Signature,Value},Y2,Bin2}.
+    {Value,Y2,Bin2}.
 
 decode_array_elements_little(Y,Es,Bin) ->
     decode_array_elements_little(Y,Es,Bin,[]).
 
 decode_array_elements_little(Y,_Es, <<>>, Acc) ->
-    {lists:reverse(Acc),Y};
+    {reverse(Acc),Y};
 decode_array_elements_little(Y, Es, Bin, Acc) ->
     {X,Y1,Bin1} = decode_little(Y, Es, Bin),
     decode_array_elements_little(Y1,Es,Bin1,[X|Acc]).
@@ -549,7 +556,7 @@ decode_array_elements_little(Y, Es, Bin, Acc) ->
 decode_struct_little(Y,Es,Bin0,Acc) ->
     case next_argument(Es) of
 	{")",""} ->
-	    {list_to_tuple(lists:reverse(Acc)),Y,Bin0};
+	    {list_to_tuple(reverse(Acc)),Y,Bin0};
 	{Spec,Es1} ->
 	    {Elem,Y1,Bin1} = decode_little(Y,Spec,Bin0),
 	    decode_struct_little(Y1,Es1,Bin1,[Elem|Acc])
@@ -653,14 +660,14 @@ decode_big(Y,[?DBUS_DICT_ENTRY_BEGIN|Es],Bin) ->
 decode_big(Y,[?DBUS_VARIANT],Bin) ->
     {Signature,Y1,Bin1} = decode_big(Y,[?DBUS_SIGNATURE],Bin),
     {Value,Y2,Bin2} = decode_big(Y1,Signature,Bin1),
-    {{Signature,Value},Y2,Bin2}.
+    {Value,Y2,Bin2}.
 
 
 decode_array_elements_big(Y,Es,Bin) ->
     decode_array_elements_big(Y,Es,Bin,[]).
 
 decode_array_elements_big(Y,_Es, <<>>, Acc) ->
-    {lists:reverse(Acc),Y};
+    {reverse(Acc),Y};
 decode_array_elements_big(Y, Es, Bin, Acc) ->
     {X,Y1,Bin1} = decode_big(Y, Es, Bin),
     decode_array_elements_big(Y1,Es,Bin1,[X|Acc]).
@@ -668,7 +675,7 @@ decode_array_elements_big(Y, Es, Bin, Acc) ->
 decode_struct_big(Y,Es,Bin0,Acc) ->
     case next_argument(Es) of
 	{")",""} ->
-	    {list_to_tuple(lists:reverse(Acc)),Y,Bin0};
+	    {list_to_tuple(reverse(Acc)),Y,Bin0};
 	{Spec,Es1} ->
 	    {Elem,Y1,Bin1} = decode_big(Y,Spec,Bin0),
 	    decode_struct_big(Y1,Es1,Bin1,[Elem|Acc])
@@ -694,7 +701,7 @@ next_argument([E|Es]) ->
     {[E], Es}.
 
 next_argument([E|Es], [E], Acc) ->
-    {lists:reverse([E|Acc]), Es};
+    {reverse([E|Acc]), Es};
 next_argument([E|Es], [E|Fs], Acc) ->
     next_argument(Es, Fs, [E|Acc]);
 next_argument([?DBUS_STRUCT_BEGIN|Es], Fs, Acc) ->
@@ -703,6 +710,117 @@ next_argument([?DBUS_DICT_ENTRY_BEGIN|Es], Fs, Acc) ->
     next_argument(Es, [?DBUS_DICT_ENTRY_END|Fs], [?DBUS_DICT_ENTRY_BEGIN|Acc]);
 next_argument([E|Es], Fs=[_|_], Acc) ->
     next_argument(Es, Fs, [E|Acc]).
+
+%%
+%% @doc 
+%%   Encode erlang term
+%% @end
+%%
+encode_erlang(X) ->
+    encode_erlang(erlang:system_info(endian),0,X).
+
+encode_erlang(E,Y,X) ->
+    {Data,_} = encode(E,Y,"v",evariant(X)),
+    iolist_to_binary(Data).
+
+decode_erlang(Bin) ->
+    decode_erlang(erlang:system_info(endian),0,Bin).
+
+decode_erlang(E,Y,Bin) ->
+    {Term,_Y,<<>>} = decode(E,Y,"v",Bin),
+    Term.
+
+%% generate variant code 
+evariant(X) when is_integer(X) ->
+    if ?is_unsigned(X,8) -> {[?DBUS_BYTE],X};
+       ?is_signed(X, 16) -> {[?DBUS_INT16],X};
+       ?is_signed(X, 32) -> {[?DBUS_INT32],X};
+       ?is_signed(X, 64) -> {[?DBUS_INT64],X}
+    end;
+evariant(X) when is_float(X) ->
+    {[?DBUS_DOUBLE],X};
+evariant(X) when is_boolean(X) ->
+    {[?DBUS_BOOLEAN],X};
+evariant(X) when is_binary(X) -> 
+    {[?DBUS_ARRAY,?DBUS_BYTE],X};
+evariant(X) when is_list(X) ->
+    S = elist(X),
+    if S =:= "av" ->
+	    {S, map(fun(Xi) -> evariant(Xi) end, X)};
+       true ->
+	    {S, X}
+    end;
+evariant(X) when is_tuple(X) ->
+    Ts = map(fun(E) -> evariant(E) end, tuple_to_list(X)),
+    Sv = append(map(fun({S,_}) -> S end, Ts)),
+    Ev = map(fun({_,Xi}) -> Xi end, Ts),
+    {"("++Sv++")", list_to_tuple(Ev)}.
+
+%%
+%% find the most general list type code
+%%
+%% [1,2,3]    => ay
+%% [1,2,1000] => aq | an
+%% [1.0,2.0]  => ad
+%% [true,false] => ab
+%% not matching => av  (each element must be variant coded)
+%%
+elist(L) ->
+    elist(L, "").
+
+elist(_, "v") -> 
+    "av";
+elist([H|T], S) ->
+    {S1,_} = evariant(H),
+    elist(T, unify(S,S1));
+elist([],"y") -> "s";
+elist([],S) -> "a"++S.
+
+%% y=uint8, n=int16, i=int32, x=int64
+unify("", S) -> S;
+unify(S, S) -> S;
+unify("v",_) -> "v";
+unify([$(|As],[$(|Bs]) ->
+    case unify_array_elems(As,Bs) of
+	false -> "v";
+	Es -> "("++append(Es)++")"
+    end;
+%% unify("y", "y") -> "y";
+unify("y", "n") -> "n";
+unify("y", "i") -> "i";
+unify("y", "x") -> "x";
+
+unify("n", "y") -> "n";
+%% unify("n", "n") -> "n";
+unify("n", "i") -> "n";
+unify("n", "x") -> "x";
+
+unify("i", "y") -> "i";
+unify("i", "n") -> "i";
+%% unify("i", "i") -> "i";
+unify("i", "x") -> "x";
+
+unify("x", "y") -> "x";
+unify("x", "n") -> "x";
+unify("x", "i") -> "x";
+%% unify("x", "x") -> "x";
+
+%% unify("d", "d") -> "d";
+%% unify("b", "b") -> "b";
+%% unify("s", "s") -> "s";
+unify(_, _) -> "v".
+
+unify_array_elems(As,Bs) ->
+    unify_array_elems(As,Bs,[]).
+
+unify_array_elems(")",")",Acc) -> reverse(Acc);
+unify_array_elems(")",_, _) -> false;
+unify_array_elems(_, ")",_) -> false;
+unify_array_elems(As,Bs,Acc) ->
+    {A,As1} = next_argument(As),
+    {B,Bs1} = next_argument(Bs),
+    C = unify(A,B),
+    unify_array_elems(As1,Bs1,[C|Acc]).
 
 %%
 %% Convert a "readable" symbolic type spec into a signature
@@ -991,6 +1109,9 @@ test_type(Endian, Spec, Value) ->
     {Value1,Y1,<<>>} = decode(Endian,P0,Spec,iolist_to_binary(IOList)),
     if is_binary(Value1), is_list(Value) ->
 	    Value = binary_to_list(Value1);  %% special for testing "ay"
+       Spec =:= "v" ->
+	    V = element(2,Value),
+	    V = Value1;
        true ->
-	    Value = Value1
+	    Value1 = Value
     end.
