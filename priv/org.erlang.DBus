@@ -6,8 +6,13 @@
 %% variant 
 {interface, 'org.erlang.DBus',
  [
-  {method, 'Call', [{{array,variant},arguments}],
-   [{variant,reply}]},
+  {method, 'Call', [{string,name},{term,request}], 
+   [{term,reply}]},
 
-  {signal, 'Cast', [{{array,variant},arguments}]}
+  {signal, 'Cast', [{string,name},{term,message}]},
+
+  {method, 'Rpc', [{string,mod},{string,func},{{array,term},args}], 
+   [{term,reply}]}
+   
+
  ]}.

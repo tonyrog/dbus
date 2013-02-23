@@ -53,6 +53,10 @@
 -define(DBUS_STRUCT, $r).
 -define(DBUS_DICT_ENTRY, $e).
 
+%% special hack to handle erlang terms, it should never be sent over 
+%% the wire
+-define(DBUS_ERLANG,  $E).
+
 -type uint16_t() :: 0..65535.
 -type uint32_t() :: 0..4294967295.
 %% we could use record index -1 for names 

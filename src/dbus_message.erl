@@ -33,32 +33,35 @@
 
 -define(HEADER_SIGNATURE, "yyyyuua(yv)").
 
-encode_call(Endian, Serial, Fields, Signature, Arguments) ->
+encode_call(Endian, Serial, Fields, Signature, Args) ->
     Fd = fields(Fields),
     E = get_endian(Endian),
-    {Body,Length} = dbus_codec:encode_signature(E,0,Signature,Arguments),
+    {Body,Length} = dbus_codec:encode_args(E,0,Signature,Args),
+    Signature1 = dbus_codec:efilter(Signature),
     H = #dbus_header { endian=E,
 		       message_type=method_call,
 		       length=Length,
 		       serial=Serial, 
-		       fields = Fd#dbus_field { signature=Signature} 
+		       fields = Fd#dbus_field { signature=Signature1} 
 		     },
     {Header,Offs} = encode_dbus_header(H),
     Pad = ?PAD_SIZE(Offs,8),
     {[Header,<<?PAD(Pad)>>,Body],Offs+Pad+Length}.
 
-encode_return(Endian, Serial, Fields, Signature, Arguments) ->
+encode_return(Endian, Serial, Fields, Signature, Args) ->
     Fd = fields(Fields),
     E = get_endian(Endian),
-    {Body,Length} = dbus_codec:encode_signature(E,0,Signature,Arguments),
+    {Body,Length} = dbus_codec:encode_args(E,0,Signature,Args),
+    Signature1 = dbus_codec:efilter(Signature),
+    Fd1 = Fd#dbus_field { signature = Signature1 },
     H = #dbus_header { endian=E, 
 		       message_type=method_return,
 		       flags = [no_reply_expected],
 		       length=Length,
 		       serial=Serial,
-		       fields = Fd#dbus_field { signature=Signature} 
+		       fields = Fd1
 		     },
-    io:format("ENCODE_RETURN: H=~p, Body=~p\n", [H, Body]),
+    io:format("ENCODE_RAW_RETURN: H=~p, Body=~p\n", [H, Body]),
     {Header,Offs} = encode_dbus_header(H),
     Pad = ?PAD_SIZE(Offs,8),
     {[Header,<<?PAD(Pad)>>,Body],Offs+Pad+Length}.
@@ -66,12 +69,14 @@ encode_return(Endian, Serial, Fields, Signature, Arguments) ->
 encode_signal(Endian, Serial, Fields, Signature, Arguments) ->
     Fd = fields(Fields),
     E = get_endian(Endian),
-    {Body,Length} = dbus_codec:encode_signature(E,0,Signature,Arguments),
+    {Body,Length} = dbus_codec:encode_args(E,0,Signature,Arguments),
+    Signature1 = dbus_codec:efilter(Signature),
+    Fd1 = Fd#dbus_field { signature=Signature1 },
     H = #dbus_header { endian=E, 
 		       message_type=signal,
 		       length=Length, 
 		       serial=Serial, 
-		       fields = Fd#dbus_field { signature=Signature} 
+		       fields = Fd1
 		     },
     io:format("ENCODE_SIGNAL: H=~p, Body=~p\n", [H, Body]),
     {Header,Offs} = encode_dbus_header(H),
@@ -83,7 +88,7 @@ encode_error(Endian, Serial, Fields, ErrorName, ErrorText) ->
     E = get_endian(Endian),
     Signature = "s",
     Arguments = [ErrorText],
-    {Body,Length} = dbus_codec:encode_signature(E,0,Signature,Arguments),
+    {Body,Length} = dbus_codec:encode_args(E,0,Signature,Arguments),
     H = #dbus_header { endian=E, 
 		       message_type=error,
 		       length=Length,
@@ -107,7 +112,7 @@ decode(Bin) ->
     Fd = H#dbus_header.fields,
     Signature = Fd#dbus_field.signature,
     {Data,_Offs1,Bin2} =
-	dbus_codec:decode_signature(H#dbus_header.endian,0,Signature,Body),
+	dbus_codec:decode_args(H#dbus_header.endian,0,Signature,Body),
     {{H,Data}, Bin2}.
 
 %% Header signature "yyyyuua(yv)"
@@ -120,15 +125,15 @@ encode_dbus_header(#dbus_header { endian=Endian0, message_type=MessageType,
 				  length=Length, serial=Serial,
 				  fields=Fds }) ->
     Endian = get_endian(Endian0),
-    dbus_codec:encode_signature(Endian, 0,
-				?HEADER_SIGNATURE,
-				[ encode_dbus_endian(Endian),
-				  encode_dbus_message_type(MessageType),
-				  encode_dbus_flags(Flags),
-				  Version,
-				  Length,
-				  Serial,
-				  make_dbus_fields(Fds)]).
+    dbus_codec:encode_args(Endian, 0,
+			   ?HEADER_SIGNATURE,
+			   [ encode_dbus_endian(Endian),
+			     encode_dbus_message_type(MessageType),
+			     encode_dbus_flags(Flags),
+			     Version,
+			     Length,
+			     Serial,
+			     make_dbus_fields(Fds)]).
 
 decode_dbus_header(Y,Bin = <<$l,_/binary>>) ->
     decode_dbus_header_(little,Y,Bin);
@@ -140,7 +145,7 @@ decode_dbus_header(_Y,<<>>) ->
 
 decode_dbus_header_(E,Y,Bin) when is_binary(Bin) ->
     {[_Endian,MessageType,Flags,Version,Length,Serial,Fields],Y1,Bin1} =
-	dbus_codec:decode_signature(E,Y,?HEADER_SIGNATURE,Bin),
+	dbus_codec:decode_args(E,Y,?HEADER_SIGNATURE,Bin),
     H = #dbus_header { endian = E,
 		       message_type = decode_dbus_message_type(MessageType),
 		       flags = decode_dbus_flags(Flags),
@@ -226,7 +231,7 @@ dbus_field_variant(unix_fds)     -> {9, [?DBUS_UINT32]}.
 decode_dbus_fields(Fs) ->
     decode_dbus_fields(Fs, #dbus_field{}).
 
-decode_dbus_fields([{Field,{_Type,Value}}|Fs], F) ->
+decode_dbus_fields([{Field,Value}|Fs], F) ->
     case Field+1 of
 	#dbus_field.path -> 
 	    decode_dbus_fields(Fs, F#dbus_field { path=Value});

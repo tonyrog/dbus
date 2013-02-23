@@ -59,7 +59,10 @@ generate() ->
 	     "org.freedesktop.DBus.Introspectable",
 	     "org.freedesktop.DBus.Properties",
 	     "org.freedesktop.DBus.Peer",
-	     "org.freedesktop.DBus.ObjectManager"],
+	     "org.freedesktop.DBus.ObjectManager",
+	     %% Erlang hack
+	     "org.erlang.DBus"
+	    ],
     lists:foreach(
       fun(F) ->
 	      SrcFile = filename:join(Src, F),
@@ -101,7 +104,6 @@ generate(In, Out) ->
 	    Error
     end.
 
-
 generate_interface(Name, Procs) ->
     Interface = atom_to_list(Name),
     ["-module(", module_name(Interface), ").\n",
@@ -124,7 +126,24 @@ generate_interface(Name, Procs) ->
 		"    \"", Signature, "\",\n",
 		"    [", ArgListString, "]).\n\n" |
 		Acc];
-	  ({signal,_Signal,_Args},Acc) ->
+	  ({signal,Signal,Args},Acc) ->
+	       Path = "/org/freedesktop/DBus",
+	       {Signature,ArgList} = generate_args(Args,[],[]),
+	       ArgListString = string:join(ArgList,","),
+	       ParamsString = if Args =:= [] -> "";
+				 true -> [$, | ArgListString]
+			      end,
+	       FunctionName = function_name(atom_to_list(Signal)),
+	       [FunctionName,"(Connection",ParamsString,") -> \n",
+		"    dbus_connection:signal(Connection,\n",
+		"        [{destination,\"",Interface,"\"},\n",
+		"         {path,\"",Path,"\"},\n",
+		"         {interface,\"",Interface,"\"},\n",
+		"         {member,\"",atom_to_list(Signal),"\"}],\n",
+		"    \"", Signature, "\",\n",
+		"    [", ArgListString, "]).\n\n" |
+		Acc];
+	  (_,Acc) ->
 	       Acc
        end,[],Procs)].
 

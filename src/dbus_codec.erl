@@ -26,12 +26,16 @@
 -compile(export_all).
 
 -include("../include/dbus.hrl").
--import(lists, [map/2,append/1,reverse/1]).
 
--define(is_unsigned(X,N), ((X) band (bnot ((1 bsl (N))-1)) =:= 0)).
--define(is_signed(X,N), 
-	((((X) >= 0) andalso ?is_unsigned((X),N-1)) orelse
-	 ?is_unsigned((-(X))-1,N-1))).
+-export([encode_args/2,
+	 encode/2, encode/3, encode/4,
+	 decode_args/4,
+	 decode/2, decode/3, decode/4]).
+-export([next_arg/1]).
+-export([efilter/1]).
+-export([type_spec_to_signature/1]).
+
+-import(lists, [map/2,append/1,reverse/1]).
 
 -define(UINT(P,E,X,Sz),  <<?PAD(P),(X):Sz/E-unsigned-integer>>).
 -define(INT(P,E,X,Sz),	 <<?PAD(P),(X):Sz/E-signed-integer>>).
@@ -96,40 +100,37 @@ alignment([?DBUS_STRUCT_BEGIN|_])     -> 8;
 alignment([?DBUS_VARIANT|_])          -> 1;
 alignment([?DBUS_DICT_ENTRY|_])       -> 8;
 alignment([?DBUS_DICT_ENTRY_BEGIN|_]) -> 8;
-alignment([?DBUS_UNIX_FD|_])          -> 4.
+alignment([?DBUS_UNIX_FD|_])          -> 4;
+%% special
+alignment([?DBUS_ERLANG|_])           -> 1.
 
-is_signed(X, N) ->
-    ?is_signed(X, N).
-
-is_unsigned(X, N) ->
-    ?is_unsigned(X, N).
 
 %% @doc
 %%   Encode a sequence of data
 %% @end
-encode_signature(Signature, Sequence) when is_list(Sequence) ->
-    encode_signature(erlang:system_info(endian), 0, Signature, Sequence).
+encode_args(Signature, Sequence) when is_list(Sequence) ->
+    encode_args(erlang:system_info(endian), 0, Signature, Sequence).
 
-encode_signature(little, Y, Signature, Sequence) ->
-    encode_signature_little(Y, Signature, Sequence);
-encode_signature(big, Y, Signature, Sequence) ->
-    encode_signature_big(Y, Signature, Sequence).
+encode_args(little, Y, Signature, Sequence) ->
+    encode_args_little(Y, Signature, Sequence);
+encode_args(big, Y, Signature, Sequence) ->
+    encode_args_big(Y, Signature, Sequence).
 
 
-encode_signature_little(Y, Es, [X|Xs]) when is_list(Es) ->
-    {E,Es1} = next_argument(Es),
+encode_args_little(Y, Es, [X|Xs]) when is_list(Es) ->
+    {E,Es1} = next_arg(Es),
     {V,Y1}  = encode_little(Y,E,X),
-    {Vs,Y2} = encode_signature_little(Y1,Es1,Xs),
+    {Vs,Y2} = encode_args_little(Y1,Es1,Xs),
     {[V|Vs],Y2};
-encode_signature_little(Y, _Es, []) ->
+encode_args_little(Y, _Es, []) ->
     {[],Y}.
 
-encode_signature_big(Y, Es, [X|Xs]) when is_list(Es) ->
-    {E,Es1} = next_argument(Es),
+encode_args_big(Y, Es, [X|Xs]) when is_list(Es) ->
+    {E,Es1} = next_arg(Es),
     {V,Y1}  = encode_big(Y,E,X),
-    {Vs,Y2} = encode_signature_big(Y1,Es1,Xs),
+    {Vs,Y2} = encode_args_big(Y1,Es1,Xs),
     {[V|Vs],Y2};
-encode_signature_big(Y, _Es, []) ->
+encode_args_big(Y, _Es, []) ->
     {[],Y}.
 
 
@@ -228,7 +229,7 @@ encode_little(Y,S=[?DBUS_ARRAY,?DBUS_BYTE], X) when is_list(X) ->
     encode_little(Y,S,iolist_to_binary(X));
 
 encode_little(Y,[?DBUS_ARRAY|Es], X) when is_list(X) ->
-    {AEs,""} = next_argument(Es),  %% element type
+    {AEs,""} = next_arg(Es),  %% element type
     {Vs,YSz} = encode_array_elements_little(0,AEs,X),
     if YSz > ?MAX_ARRAY_SIZE -> erlang:error(array_too_long);
        true -> ok
@@ -245,17 +246,22 @@ encode_little(Y,[?DBUS_STRUCT_BEGIN|Es1], X) when is_tuple(X) ->
 
 encode_little(Y,[?DBUS_DICT_ENTRY_BEGIN|Es], {K,V}) ->
     P0 = pad_size(Y, 8),
-    {KSpec,Es1} = next_argument(Es),
-    {VSpec,[?DBUS_DICT_ENTRY_END]} = next_argument(Es1),
+    {KSpec,Es1} = next_arg(Es),
+    {VSpec,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
     {KBin,Y1} = encode_little(Y+P0,KSpec,K),
     {VBin,Y2} = encode_little(Y1,VSpec,V),
     {[<<?PAD(P0)>>,KBin,VBin], Y2};
 
 encode_little(Y,[?DBUS_VARIANT], {Signature,Value}) ->
     %% Fixme: handle variant depth !
-    {SBin,Y1} = encode_little(Y,[?DBUS_SIGNATURE],Signature),
+    {SBin,Y1} = encode_little(Y,[?DBUS_SIGNATURE],efilter(Signature)),
     {VBin,Y2} = encode_little(Y1,Signature,Value),
-    {[SBin,VBin], Y2}.
+    {[SBin,VBin], Y2};
+
+encode_little(Y,[?DBUS_ERLANG], Term) ->
+    Variant = dbus_erlang:evariant(Term),
+    encode_little(Y,[?DBUS_VARIANT],Variant).
+
 
 encode_array_elements_little(Y,Es,Xs) ->
     encode_array_elements_little(Y,Es,Xs,[]).
@@ -267,7 +273,7 @@ encode_array_elements_little(Y,_Es,[],Acc) ->
     {reverse(Acc),Y}.
 
 encode_struct_little(Y,Es,I,X,Acc) ->
-    case next_argument(Es) of
+    case next_arg(Es) of
 	{")",""}   -> 
 	    {reverse(Acc),Y};
 	{Spec,Es1} ->
@@ -359,7 +365,7 @@ encode_big(Y,S=[?DBUS_ARRAY,?DBUS_BYTE], X) when is_list(X) ->
     encode_big(Y,S,iolist_to_binary(X));
 
 encode_big(Y,[?DBUS_ARRAY|Es], X) when is_list(X) ->
-    {AEs,""} = next_argument(Es),  %% element type
+    {AEs,""} = next_arg(Es),  %% element type
     {Vs,YSz} = encode_array_elements_big(0,AEs,X),
     if YSz > ?MAX_ARRAY_SIZE -> erlang:error(array_too_long);
        true -> ok
@@ -376,17 +382,21 @@ encode_big(Y,[?DBUS_STRUCT_BEGIN|Es1], X) when is_tuple(X) ->
 
 encode_big(Y,[?DBUS_DICT_ENTRY_BEGIN|Es], {K,V}) ->
     P = pad_size(Y, 8),
-    {KSpec,Es1} = next_argument(Es),
-    {VSpec,[?DBUS_DICT_ENTRY_END]} = next_argument(Es1),
+    {KSpec,Es1} = next_arg(Es),
+    {VSpec,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
     {KBin,Y1} = encode_big(Y+P,KSpec,K),
     {VBin,Y2} = encode_big(Y1,VSpec,V),
     {[<<?PAD(P)>>,KBin,VBin], Y2};
 
 encode_big(Y,[?DBUS_VARIANT], {Signature,Value}) ->
     %% Fixme: handle variant depth !
-    {SBin,Y1} = encode_big(Y,[?DBUS_SIGNATURE],Signature),
+    {SBin,Y1} = encode_big(Y,[?DBUS_SIGNATURE],efilter(Signature)),
     {VBin,Y2} = encode_big(Y1,Signature,Value),
-    {[SBin,VBin], Y2}.
+    {[SBin,VBin], Y2};
+
+encode_big(Y,[?DBUS_ERLANG], Term) ->
+    Variant = dbus_erlang:evariant(Term),
+    encode_big(Y,[?DBUS_VARIANT],Variant).
 
 encode_array_elements_big(Y,Es,Xs) ->
     encode_array_elements_big(Y,Es,Xs,[]).
@@ -399,7 +409,7 @@ encode_array_elements_big(Y,_Es,[],Acc) ->
 
 
 encode_struct_big(Y,Es,I,X,Acc) ->
-    case next_argument(Es) of
+    case next_arg(Es) of
 	{")",""}   -> 
 	    {reverse(Acc),Y};
 	{Spec,Es1} ->
@@ -407,30 +417,34 @@ encode_struct_big(Y,Es,I,X,Acc) ->
 	    encode_struct_big(Y1,Es1,I+1,X,[Data|Acc])
     end.
 
-
+efilter(Cs) ->
+    [if C =:= ?DBUS_ERLANG -> ?DBUS_VARIANT;
+	true -> C
+     end || C <- Cs].
+    
 %% @doc
 %%   Decode a signature
 %% @end
-decode_signature(little, Y, Es, Bin) ->
-    decode_signature_little(Y, Es, Bin);
-decode_signature(big, Y, Es, Bin) ->
-    decode_signature_big(Y, Es, Bin).
+decode_args(little, Y, Es, Bin) ->
+    decode_args_little(Y, Es, Bin);
+decode_args(big, Y, Es, Bin) ->
+    decode_args_big(Y, Es, Bin).
 
 
-decode_signature_little(Y, [], Bin0) ->
+decode_args_little(Y, [], Bin0) ->
     {[],Y,Bin0};
-decode_signature_little(Y, Es, Bin0) ->
-    {Spec,Es1} = next_argument(Es),
+decode_args_little(Y, Es, Bin0) ->
+    {Spec,Es1} = next_arg(Es),
     {X,Y1,Bin1} = decode_little(Y, Spec, Bin0),
-    {Xs,Y2,Bin2} = decode_signature_little(Y1,Es1,Bin1),
+    {Xs,Y2,Bin2} = decode_args_little(Y1,Es1,Bin1),
     {[X|Xs],Y2,Bin2}.
 
-decode_signature_big(Y, [], Bin0) ->
+decode_args_big(Y, [], Bin0) ->
     {[],Y,Bin0};
-decode_signature_big(Y, Es, Bin0) ->
-    {Spec,Es1} = next_argument(Es),
+decode_args_big(Y, Es, Bin0) ->
+    {Spec,Es1} = next_arg(Es),
     {X,Y1,Bin1} = decode_big(Y, Spec, Bin0),
-    {Xs,Y2,Bin2} = decode_signature_big(Y1,Es1,Bin1),
+    {Xs,Y2,Bin2} = decode_args_big(Y1,Es1,Bin1),
     {[X|Xs],Y2,Bin2}.
 
 decode(Signature,Bin) ->
@@ -519,7 +533,7 @@ decode_little(Y,[?DBUS_ARRAY,?DBUS_BYTE], Bin) ->
     {Bin2,Y1+Size,T};
 
 decode_little(Y,[?DBUS_ARRAY|Es], Bin) ->
-    {AEs,""} = next_argument(Es),  %% element type
+    {AEs,""} = next_arg(Es),  %% element type
     {Size,Y1,Bin1} = decode_little(Y,[?DBUS_UINT32],Bin),
     A = alignment(AEs),
     P0 = pad_size(Y1,A),
@@ -534,15 +548,18 @@ decode_little(Y,[?DBUS_STRUCT_BEGIN|Es], Bin) ->
 decode_little(Y,[?DBUS_DICT_ENTRY_BEGIN|Es],Bin) ->
     P0 = pad_size(Y, 8),
     <<?PAD(P0), Bin1/binary>> = Bin,
-    {KSpec,Es1} = next_argument(Es),
-    {VSpec,[?DBUS_DICT_ENTRY_END]} = next_argument(Es1),
+    {KSpec,Es1} = next_arg(Es),
+    {VSpec,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
     {K,Y1,Bin2} = decode_little(Y+P0,KSpec,Bin1),
     {V,Y2,Bin3} = decode_little(Y1,VSpec,Bin2),
     {{K,V},Y2,Bin3};
 decode_little(Y,[?DBUS_VARIANT],Bin) ->
     {Signature,Y1,Bin1} = decode_little(Y,[?DBUS_SIGNATURE],Bin),
     {Value,Y2,Bin2} = decode_little(Y1,Signature,Bin1),
-    {Value,Y2,Bin2}.
+    {Value,Y2,Bin2};
+decode_little(Y,[?DBUS_ERLANG],Bin) ->
+    decode_little(Y, [?DBUS_VARIANT], Bin).
+    
 
 decode_array_elements_little(Y,Es,Bin) ->
     decode_array_elements_little(Y,Es,Bin,[]).
@@ -554,7 +571,7 @@ decode_array_elements_little(Y, Es, Bin, Acc) ->
     decode_array_elements_little(Y1,Es,Bin1,[X|Acc]).
     
 decode_struct_little(Y,Es,Bin0,Acc) ->
-    case next_argument(Es) of
+    case next_arg(Es) of
 	{")",""} ->
 	    {list_to_tuple(reverse(Acc)),Y,Bin0};
 	{Spec,Es1} ->
@@ -637,7 +654,7 @@ decode_big(Y,[?DBUS_ARRAY,?DBUS_BYTE], Bin) ->
     <<Bin2:Size/binary,T/binary>> = Bin1,
     {Bin2,Y1+Size,T};
 decode_big(Y,[?DBUS_ARRAY|Es], Bin) ->
-    {AEs,""} = next_argument(Es),  %% element type
+    {AEs,""} = next_arg(Es),  %% element type
     {Size,Y1,Bin1} = decode_big(Y,[?DBUS_UINT32],Bin),
     A = alignment(AEs),
     P0 = pad_size(Y1,A),
@@ -652,15 +669,17 @@ decode_big(Y,[?DBUS_STRUCT_BEGIN|Es], Bin) ->
 decode_big(Y,[?DBUS_DICT_ENTRY_BEGIN|Es],Bin) ->
     P0 = pad_size(Y, 8),
     <<?PAD(P0), Bin1/binary>> = Bin,
-    {KSpec,Es1} = next_argument(Es),
-    {VSpec,[?DBUS_DICT_ENTRY_END]} = next_argument(Es1),
+    {KSpec,Es1} = next_arg(Es),
+    {VSpec,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
     {K,Y1,Bin2} = decode_big(Y+P0,KSpec,Bin1),
     {V,Y2,Bin3} = decode_big(Y1,VSpec,Bin2),
     {{K,V},Y2,Bin3};
 decode_big(Y,[?DBUS_VARIANT],Bin) ->
     {Signature,Y1,Bin1} = decode_big(Y,[?DBUS_SIGNATURE],Bin),
     {Value,Y2,Bin2} = decode_big(Y1,Signature,Bin1),
-    {Value,Y2,Bin2}.
+    {Value,Y2,Bin2};
+decode_big(Y,[?DBUS_ERLANG],Bin) ->
+    decode_big(Y, [?DBUS_VARIANT], Bin).
 
 
 decode_array_elements_big(Y,Es,Bin) ->
@@ -673,7 +692,7 @@ decode_array_elements_big(Y, Es, Bin, Acc) ->
     decode_array_elements_big(Y1,Es,Bin1,[X|Acc]).
 
 decode_struct_big(Y,Es,Bin0,Acc) ->
-    case next_argument(Es) of
+    case next_arg(Es) of
 	{")",""} ->
 	    {list_to_tuple(reverse(Acc)),Y,Bin0};
 	{Spec,Es1} ->
@@ -685,142 +704,31 @@ decode_struct_big(Y,Es,Bin0,Acc) ->
 %% @doc
 %%   Fetch next argument in type spec.
 %%   Examples:
-%%   next_argument("ii") -> {"i", "i"}
-%%   next_argument("a{i(ddd)}i") -> {"a{i(ddd)}", "i"}
+%%   next_arg("ii") -> {"i", "i"}
+%%   next_arg("a{i(ddd)}i") -> {"a{i(ddd)}", "i"}
 %% @end
--spec next_argument(Spec::string()) -> {string(), string()}.
+-spec next_arg(Spec::string()) -> {string(), string()}.
 
-next_argument([?DBUS_STRUCT_BEGIN|Es]) ->
-    next_argument(Es, [?DBUS_STRUCT_END], [?DBUS_STRUCT_BEGIN]);
-next_argument([?DBUS_DICT_ENTRY_BEGIN|Es]) ->
-    next_argument(Es, [?DBUS_DICT_ENTRY_END], [?DBUS_DICT_ENTRY_BEGIN]);
-next_argument([?DBUS_ARRAY|Es]) ->
-    {A,Es1} = next_argument(Es),
+next_arg([?DBUS_STRUCT_BEGIN|Es]) ->
+    next_arg(Es, [?DBUS_STRUCT_END], [?DBUS_STRUCT_BEGIN]);
+next_arg([?DBUS_DICT_ENTRY_BEGIN|Es]) ->
+    next_arg(Es, [?DBUS_DICT_ENTRY_END], [?DBUS_DICT_ENTRY_BEGIN]);
+next_arg([?DBUS_ARRAY|Es]) ->
+    {A,Es1} = next_arg(Es),
     {[?DBUS_ARRAY|A],Es1};
-next_argument([E|Es]) ->
+next_arg([E|Es]) ->
     {[E], Es}.
 
-next_argument([E|Es], [E], Acc) ->
+next_arg([E|Es], [E], Acc) ->
     {reverse([E|Acc]), Es};
-next_argument([E|Es], [E|Fs], Acc) ->
-    next_argument(Es, Fs, [E|Acc]);
-next_argument([?DBUS_STRUCT_BEGIN|Es], Fs, Acc) ->
-    next_argument(Es, [?DBUS_STRUCT_END|Fs], [?DBUS_STRUCT_BEGIN|Acc]);
-next_argument([?DBUS_DICT_ENTRY_BEGIN|Es], Fs, Acc) ->
-    next_argument(Es, [?DBUS_DICT_ENTRY_END|Fs], [?DBUS_DICT_ENTRY_BEGIN|Acc]);
-next_argument([E|Es], Fs=[_|_], Acc) ->
-    next_argument(Es, Fs, [E|Acc]).
-
-%%
-%% @doc 
-%%   Encode erlang term
-%% @end
-%%
-encode_erlang(X) ->
-    encode_erlang(erlang:system_info(endian),0,X).
-
-encode_erlang(E,Y,X) ->
-    {Data,_} = encode(E,Y,"v",evariant(X)),
-    iolist_to_binary(Data).
-
-decode_erlang(Bin) ->
-    decode_erlang(erlang:system_info(endian),0,Bin).
-
-decode_erlang(E,Y,Bin) ->
-    {Term,_Y,<<>>} = decode(E,Y,"v",Bin),
-    Term.
-
-%% generate variant code 
-evariant(X) when is_integer(X) ->
-    if ?is_unsigned(X,8) -> {[?DBUS_BYTE],X};
-       ?is_signed(X, 16) -> {[?DBUS_INT16],X};
-       ?is_signed(X, 32) -> {[?DBUS_INT32],X};
-       ?is_signed(X, 64) -> {[?DBUS_INT64],X}
-    end;
-evariant(X) when is_float(X) ->
-    {[?DBUS_DOUBLE],X};
-evariant(X) when is_boolean(X) ->
-    {[?DBUS_BOOLEAN],X};
-evariant(X) when is_binary(X) -> 
-    {[?DBUS_ARRAY,?DBUS_BYTE],X};
-evariant(X) when is_list(X) ->
-    S = elist(X),
-    if S =:= "av" ->
-	    {S, map(fun(Xi) -> evariant(Xi) end, X)};
-       true ->
-	    {S, X}
-    end;
-evariant(X) when is_tuple(X) ->
-    Ts = map(fun(E) -> evariant(E) end, tuple_to_list(X)),
-    Sv = append(map(fun({S,_}) -> S end, Ts)),
-    Ev = map(fun({_,Xi}) -> Xi end, Ts),
-    {"("++Sv++")", list_to_tuple(Ev)}.
-
-%%
-%% find the most general list type code
-%%
-%% [1,2,3]    => ay
-%% [1,2,1000] => aq | an
-%% [1.0,2.0]  => ad
-%% [true,false] => ab
-%% not matching => av  (each element must be variant coded)
-%%
-elist(L) ->
-    elist(L, "").
-
-elist(_, "v") -> 
-    "av";
-elist([H|T], S) ->
-    {S1,_} = evariant(H),
-    elist(T, unify(S,S1));
-elist([],"y") -> "s";
-elist([],S) -> "a"++S.
-
-%% y=uint8, n=int16, i=int32, x=int64
-unify("", S) -> S;
-unify(S, S) -> S;
-unify("v",_) -> "v";
-unify([$(|As],[$(|Bs]) ->
-    case unify_array_elems(As,Bs) of
-	false -> "v";
-	Es -> "("++append(Es)++")"
-    end;
-%% unify("y", "y") -> "y";
-unify("y", "n") -> "n";
-unify("y", "i") -> "i";
-unify("y", "x") -> "x";
-
-unify("n", "y") -> "n";
-%% unify("n", "n") -> "n";
-unify("n", "i") -> "n";
-unify("n", "x") -> "x";
-
-unify("i", "y") -> "i";
-unify("i", "n") -> "i";
-%% unify("i", "i") -> "i";
-unify("i", "x") -> "x";
-
-unify("x", "y") -> "x";
-unify("x", "n") -> "x";
-unify("x", "i") -> "x";
-%% unify("x", "x") -> "x";
-
-%% unify("d", "d") -> "d";
-%% unify("b", "b") -> "b";
-%% unify("s", "s") -> "s";
-unify(_, _) -> "v".
-
-unify_array_elems(As,Bs) ->
-    unify_array_elems(As,Bs,[]).
-
-unify_array_elems(")",")",Acc) -> reverse(Acc);
-unify_array_elems(")",_, _) -> false;
-unify_array_elems(_, ")",_) -> false;
-unify_array_elems(As,Bs,Acc) ->
-    {A,As1} = next_argument(As),
-    {B,Bs1} = next_argument(Bs),
-    C = unify(A,B),
-    unify_array_elems(As1,Bs1,[C|Acc]).
+next_arg([E|Es], [E|Fs], Acc) ->
+    next_arg(Es, Fs, [E|Acc]);
+next_arg([?DBUS_STRUCT_BEGIN|Es], Fs, Acc) ->
+    next_arg(Es, [?DBUS_STRUCT_END|Fs], [?DBUS_STRUCT_BEGIN|Acc]);
+next_arg([?DBUS_DICT_ENTRY_BEGIN|Es], Fs, Acc) ->
+    next_arg(Es, [?DBUS_DICT_ENTRY_END|Fs], [?DBUS_DICT_ENTRY_BEGIN|Acc]);
+next_arg([E|Es], Fs=[_|_], Acc) ->
+    next_arg(Es, Fs, [E|Acc]).
 
 %%
 %% Convert a "readable" symbolic type spec into a signature
@@ -860,6 +768,7 @@ basic_spec_to_signature(Spec) ->
 	string  -> [?DBUS_STRING];
 	variant -> [?DBUS_VARIANT];
 	objpath -> [?DBUS_OBJPATH];
+	term    -> [?DBUS_ERLANG];
 	_ -> []
     end.
 

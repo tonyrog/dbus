@@ -29,12 +29,16 @@
 
 connect({"launchd:",[{"env",Var}]}) ->
     Path = trim(os:cmd("launchctl getenv "++Var)),
+    io:format("try open ~p\n", [Path]),
     afunix:connect(Path, connect_options());
 connect({"unix:",[{"path",Path}]}) ->
+    io:format("try open ~p\n", [Path]),
     afunix:connect(Path, connect_options());
 connect({"tcp:",[{"family","ipv4"},{"host",Host},{"port",Port}]}) ->
+    io:format("try open ~p\n", [{Host,Port}]),
     gen_tcp:connect(Host, list_to_integer(Port), connect_options());
 connect({"tcp:",[{"host",Host},{"port",Port}]}) ->
+    io:format("try open ~p\n", [{Host,Port}]),
     gen_tcp:connect(Host, list_to_integer(Port), connect_options());
 connect([A|As]) ->
     case connect(A) of

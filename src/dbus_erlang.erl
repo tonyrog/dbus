@@ -34,6 +34,11 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-export([encode/1, encode/3]).
+-export([decode/1, decode/3]).
+-export([evariant/1]).
+
+-import(lists, [map/2, append/1, reverse/1]).
 -define(SERVER, ?MODULE). 
 
 -define(NAME, "org.erlang.DBus").
@@ -120,27 +125,37 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info({call,Connection,H,Msg}, State) ->
-    io:format("dbus_erlang: CALL H=~p, Msg=~p\n", [H,Msg]),
+handle_info({call,Connection,H, Msg}, State) ->
     Fds = H#dbus_header.fields,
-    Sender = Fds#dbus_field.sender,
-    ReplySerial = H#dbus_header.serial,
-    %% gen_server process can be found using path.
-%%    dbus_connection:error(Connection,
-%%			   #dbus_field { destination  = Sender,
-%%					 sender = ?NAME,
-%%					 reply_serial = ReplySerial },
-%%			  "org.erlang.DBus.NoServer",
-%%			  "Server is not registered"),
-    dbus_connection:return(Connection,
-			   #dbus_field { destination  = Sender,
-					 sender = ?NAME,
-					 reply_serial = ReplySerial },
-			   "s", ["world"]),
-    {noreply, State};
-handle_info({cast,_Connection,H,Msg}, State) ->
-    io:format("dbus_erlang: CAST H=~p, Msg=~p\n", [H,Msg]),
-    {noreply, State};
+    io:format("dbus_erlang: CALL H=~p, Member=~s,Msg=~p\n", 
+	      [H,Fds#dbus_field.member,Msg]),
+    case Fds#dbus_field.member of
+	"Call" ->
+	    handle_erlang_call(Connection,H,Msg,State);
+	"Rpc" ->
+	    handle_erlang_rpc(Connection,H,Msg,State);
+	_ ->
+	    F = #dbus_field { destination  = Fds#dbus_field.sender,
+			      sender = ?NAME,
+			      reply_serial = H#dbus_header.serial },
+	    dbus_connection:error(Connection,
+				  F,
+				  "org.erlang.DBus.BadMember",
+				  "No such Interface Member"),
+	    {noreply,State}
+    end;
+
+handle_info({signal,Connection,H,Msg}, State) ->
+    io:format("dbus_erlang: SIGNAL H=~p, Msg=~p\n", [H,Msg]),
+    Fds = H#dbus_header.fields,
+    case Fds#dbus_field.member of
+	"Cast" ->
+	    handle_erlang_cast(Connection,H,Msg,State);
+	_ ->
+	    io:format("BadMember No such interface"),
+	    {noreply,State}
+    end;
+
 handle_info(_Info, State) ->
     io:format("dbus_erlang: info=~p\n", [_Info]),
     {noreply, State}.
@@ -173,3 +188,213 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+handle_erlang_call(Connection,H,[Server,Request], State) ->
+    Fds = H#dbus_header.fields,
+    Sender = Fds#dbus_field.sender,
+    ReplySerial = H#dbus_header.serial,
+    Pid =
+	try list_to_existing_atom(Server) of
+	    XServer -> erlang:whereis(XServer)
+	catch
+	    error:_ -> undefined
+	end,
+    if Pid =:= undefined ->
+	    F = #dbus_field { destination  = Sender,
+			      sender = ?NAME,
+			      reply_serial = ReplySerial },
+	    dbus_connection:error(Connection,
+				  F,
+				  "org.erlang.DBus.NoServer",
+				  "Server is not registered");
+       true ->
+	    %% FIXME: we can do this "better"? by spliting
+	    %% the gener_server:call in two sides and handle
+	    %% the returns manually!
+	    spawn(fun() ->
+			  Reply = gen_server:call(Pid, Request),
+			  Fd = #dbus_field { destination  = Sender,
+					    sender = ?NAME,
+					    reply_serial = ReplySerial },
+			  dbus_connection:return(Connection, Fd, [?DBUS_ERLANG],
+						 [Reply])
+		  end)
+    end,
+    {noreply, State}.
+
+handle_erlang_cast(_Connection,_H,[Server,Msg],State) ->
+    Pid =
+	try list_to_existing_atom(Server) of
+	    XServer -> erlang:whereis(XServer)
+	catch
+	    error:_ -> undefined
+	end,
+    if Pid =:= undefined ->
+	    io:format("dbus_erlang: server ~p not registers\n", [Server]),
+	    ok;
+       true ->
+	    gen_server:cast(Pid, Msg)
+    end,
+    {noreply, State}.
+
+
+handle_erlang_rpc(Connection,H,[Mod,Fun,Args], State) ->
+    Fds = H#dbus_header.fields,
+    Sender = Fds#dbus_field.sender,
+    ReplySerial = H#dbus_header.serial,
+    try {list_to_existing_atom(Mod),list_to_existing_atom(Fun)} of
+	{M,F} ->
+	    spawn(fun() ->
+			  try apply(M,F,Args) of
+			      Reply ->
+				  Fd = #dbus_field { destination  = Sender,
+						     sender = ?NAME,
+						     reply_serial = ReplySerial
+						   },
+				  dbus_connection:return(Connection, Fd, 
+							 [?DBUS_ERLANG],
+							 [Reply])
+			  catch
+			      error:Reason ->
+				  Text = lists:flatten(io_lib:format("~p", 
+								     [Reason])),
+				  F = #dbus_field { destination = Sender,
+						    sender = ?NAME,
+						    reply_serial = ReplySerial },
+				  dbus_connection:error(Connection,
+							F,
+							"org.erlang.DBus.Crash",
+							Text)
+			  end
+		  end),
+	    {noreply, State}
+    catch
+	error:_ ->
+	    F = #dbus_field { destination  = Sender,
+			      sender = ?NAME,
+			      reply_serial = ReplySerial },
+	    dbus_connection:error(Connection,
+				  F,
+				  "org.erlang.DBus.BadRpc",
+				  "Module not loaded"),
+	    {noreply, State}
+    end.    
+
+
+
+-define(is_unsigned(X,N), ((X) band (bnot ((1 bsl (N))-1)) =:= 0)).
+-define(is_signed(X,N), 
+	((((X) >= 0) andalso ?is_unsigned((X),N-1)) orelse
+	 ?is_unsigned((-(X))-1,N-1))).
+
+%%
+%% @doc 
+%%   Encode erlang term
+%% @end
+%%
+encode(X) ->
+    encode(erlang:system_info(endian),0,X).
+
+encode(E,Y,X) ->
+    {Data,_} = dbus_codec:encode(E,Y,[?DBUS_ERLANG],X),
+    iolist_to_binary(Data).
+
+decode(Bin) ->
+    decode(erlang:system_info(endian),0,Bin).
+
+decode(E,Y,Bin) ->
+    {Term,_Y,<<>>} = dbus_codec:decode(E,Y,[?DBUS_ERLANG],Bin),
+    Term.
+
+%% generate variant code 
+evariant(X) when is_integer(X) ->
+    if ?is_unsigned(X,8) -> {[?DBUS_BYTE],X};
+       ?is_signed(X, 16) -> {[?DBUS_INT16],X};
+       ?is_signed(X, 32) -> {[?DBUS_INT32],X};
+       ?is_signed(X, 64) -> {[?DBUS_INT64],X}
+    end;
+evariant(X) when is_float(X) ->
+    {[?DBUS_DOUBLE],X};
+evariant(X) when is_boolean(X) ->
+    {[?DBUS_BOOLEAN],X};
+evariant(X) when is_binary(X) -> 
+    {[?DBUS_ARRAY,?DBUS_BYTE],X};
+evariant(X) when is_list(X) ->
+    S = elist(X),
+    if S =:= "av" ->
+	    {S, map(fun(Xi) -> evariant(Xi) end, X)};
+       true ->
+	    {S, X}
+    end;
+evariant(X) when is_tuple(X) ->
+    Ts = map(fun(E) -> evariant(E) end, tuple_to_list(X)),
+    Sv = append(map(fun({S,_}) -> S end, Ts)),
+    Ev = map(fun({_,Xi}) -> Xi end, Ts),
+    {"("++Sv++")", list_to_tuple(Ev)}.
+
+%%
+%% find the most general list type code
+%%
+%% [1,2,3]    => ay
+%% [1,2,1000] => aq | an
+%% [1.0,2.0]  => ad
+%% [true,false] => ab
+%% not matching => av  (each element must be variant coded)
+%%
+elist(L) ->
+    elist(L, "").
+
+elist(_, "v") -> 
+    "av";
+elist([H|T], S) ->
+    {S1,_} = evariant(H),
+    elist(T, unify(S,S1));
+elist([],"y") -> "s";
+elist([],S) -> "a"++S.
+
+%% y=uint8, n=int16, i=int32, x=int64
+unify("", S) -> S;
+unify(S, S) -> S;
+unify("v",_) -> "v";
+unify([$(|As],[$(|Bs]) ->
+    case unify_array_elems(As,Bs) of
+	false -> "v";
+	Es -> "("++append(Es)++")"
+    end;
+%% unify("y", "y") -> "y";
+unify("y", "n") -> "n";
+unify("y", "i") -> "i";
+unify("y", "x") -> "x";
+
+unify("n", "y") -> "n";
+%% unify("n", "n") -> "n";
+unify("n", "i") -> "n";
+unify("n", "x") -> "x";
+
+unify("i", "y") -> "i";
+unify("i", "n") -> "i";
+%% unify("i", "i") -> "i";
+unify("i", "x") -> "x";
+
+unify("x", "y") -> "x";
+unify("x", "n") -> "x";
+unify("x", "i") -> "x";
+%% unify("x", "x") -> "x";
+
+%% unify("d", "d") -> "d";
+%% unify("b", "b") -> "b";
+%% unify("s", "s") -> "s";
+unify(_, _) -> "v".
+
+unify_array_elems(As,Bs) ->
+    unify_array_elems(As,Bs,[]).
+
+unify_array_elems(")",")",Acc) -> reverse(Acc);
+unify_array_elems(")",_, _) -> false;
+unify_array_elems(_, ")",_) -> false;
+unify_array_elems(As,Bs,Acc) ->
+    {A,As1} = dbus_codec:next_arg(As),
+    {B,Bs1} = dbus_codec:next_arg(Bs),
+    C = unify(A,B),
+    unify_array_elems(As1,Bs1,[C|Acc]).
+

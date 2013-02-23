@@ -74,6 +74,9 @@ signal(Connection, Fields, Signature, Args) ->
 return(Connection, Fields, Signature, Value) ->
     gen_server:call(Connection, {return,Fields,Signature,Value}).
 
+return(Connection, Fields, Data) when is_binary(Data) ->
+    gen_server:call(Connection, {return,Fields,Data}).
+
 error(Connection, Fields, ErrorName, ErroText) ->
     gen_server:call(Connection, {error,Fields,ErrorName,ErroText}).
 
@@ -248,6 +251,7 @@ handle_call({error,Fields,ErrorName,ErrorText}, _From, State) ->
     end;
 
 handle_call({set_addr_list, As}, _From, State) ->
+    io:format("address list: ~p\n", [As]),
     {reply, ok, State#state { addr_list = As }};
 
 handle_call(connect, _From, State) ->
@@ -555,8 +559,8 @@ handle_input(Data,State) when is_binary(Data) ->
 		    Fds = H#dbus_header.fields,
 		    Signature = Fds#dbus_field.signature,
 		    {Msg,_Y1,<<>>} =
-			dbus_codec:decode_signature(H#dbus_header.endian,0,
-						    Signature,Body),
+			dbus_codec:decode_args(H#dbus_header.endian,0,
+					       Signature,Body),
 		    State1 = State#state { buf = Data3 },
 		    handle_msg(H, Msg, State1)
 	    end
