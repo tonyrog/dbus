@@ -1,8 +1,8 @@
 
-{interface, 'org.freedesktop.DBus.Peer',
+{interface, "org.freedesktop.DBus.Peer",
  [
-  {method, 'Ping', [], [] }
-  {method, 'GetMachineId', [], [{string,machine_uuid}]}
+  {method, "Ping", [], [] },
+  {method, "GetMachineId", [], [{string,"machine_uuid"}]}
   ] 
 }.
 

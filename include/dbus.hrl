@@ -59,7 +59,23 @@
 
 -type uint16_t() :: 0..65535.
 -type uint32_t() :: 0..4294967295.
-%% we could use record index -1 for names 
+
+%% match rule (undefined normally means match )
+-record(dbus_rule,
+	{
+	  type      :: undefined | method_call | method_return | error | signal,
+	  sender    :: undefined | string(),
+	  interface :: undefined | string(),
+	  member    :: undefined | string(),
+	  path      :: undefined | string(),
+	  path_namespace :: undefined | string(),
+	  destination    :: undefined | string(),
+	  args           :: [{integer(),string()}],
+	  argspath       :: [{integer(),string()}],
+	  arg0namespace  :: undefined | string(),
+	  eavesdrop      :: undefined | boolean()
+	}).
+
 -record(dbus_field,
 	{
 	  path,
@@ -83,5 +99,6 @@
 	  serial :: uint32_t(),
 	  fields :: #dbus_field {}
 	}).
+
 
 -endif.

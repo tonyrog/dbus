@@ -1,6 +1,6 @@
 {application, dbus,
  [
-  {description, ""},
+  {description, "DBus for Erlang"},
   {vsn, git},
   {registered, []},
   {applications, [

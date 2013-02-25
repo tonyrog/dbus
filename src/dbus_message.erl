@@ -31,7 +31,11 @@
 -export([encode_error/5]).
 -export([decode/1]).
 
+%% -define(debug(F,A), io:format((F),(A))).
+-define(debug(F,A), ok).
+
 -define(HEADER_SIGNATURE, "yyyyuua(yv)").
+
 
 encode_call(Endian, Serial, Fields, Signature, Args) ->
     Fd = fields(Fields),
@@ -61,7 +65,7 @@ encode_return(Endian, Serial, Fields, Signature, Args) ->
 		       serial=Serial,
 		       fields = Fd1
 		     },
-    io:format("ENCODE_RAW_RETURN: H=~p, Body=~p\n", [H, Body]),
+    ?debug("ENCODE_RAW_RETURN: H=~p, Body=~p\n", [H, Body]),
     {Header,Offs} = encode_dbus_header(H),
     Pad = ?PAD_SIZE(Offs,8),
     {[Header,<<?PAD(Pad)>>,Body],Offs+Pad+Length}.
@@ -78,7 +82,7 @@ encode_signal(Endian, Serial, Fields, Signature, Arguments) ->
 		       serial=Serial, 
 		       fields = Fd1
 		     },
-    io:format("ENCODE_SIGNAL: H=~p, Body=~p\n", [H, Body]),
+    ?debug("ENCODE_SIGNAL: H=~p, Body=~p\n", [H, Body]),
     {Header,Offs} = encode_dbus_header(H),
     Pad = ?PAD_SIZE(Offs,8),
     {[Header,<<?PAD(Pad)>>,Body],Offs+Pad+Length}.
@@ -96,7 +100,7 @@ encode_error(Endian, Serial, Fields, ErrorName, ErrorText) ->
 		       fields = Fd#dbus_field { signature=Signature,
 						error_name=ErrorName }
 		     },
-    io:format("ENCODE_ERROR: H=~p, Body=~p\n", [H, Body]),
+    ?debug("ENCODE_ERROR: H=~p, Body=~p\n", [H, Body]),
     {Header,Offs} = encode_dbus_header(H),
     Pad = ?PAD_SIZE(Offs,8),
     {[Header,<<?PAD(Pad)>>,Body],Offs+Pad+Length}.

@@ -1,6 +1,6 @@
 
-{interface, 'org.freedesktop.DBus.Introspectable',
+{interface, "org.freedesktop.DBus.Introspectable",
  [
-  {method, 'Introspect', [], [{string,xml_data}]}
+  {method, "Introspect", [], [{string,"xml_data"}]}
  ]}.
 

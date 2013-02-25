@@ -1,18 +1,21 @@
-{interface, 'org.freedesktop.DBus.ObjectManager', 
+%% -*- erlang -*-
+%%
+%%
+{interface, "org.freedesktop.DBus.ObjectManager", 
  [
-  {method, 'GetManagedObjects', [],
+  {method, "GetManagedObjects", [],
    [{{dict,objpath,{dict,string,{dict,string,variant}}}, 
-     objpath_interfaces_and_properties}
+     "objpath_interfaces_and_properties"}
    ]},
     
-  {signal, 'InterfacesAdded', 
-   [{objpath,object_path},
+  {signal, "InterfacesAdded", 
+   [{objpath,"object_path"},
     {{dict,string,{dict,string,variant}},
-     interfaces_and_properties}
+         "interfaces_and_properties"}
    ]},
 
-  {signal, 'InterfacesRemoved', 
-   [{objpath,object_path},
-    {{array,string},interfaces}
+  {signal, "InterfacesRemoved", 
+   [{objpath,"object_path"},
+    {{array,string},"interfaces"}
    ]}
  ]}.

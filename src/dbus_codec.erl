@@ -34,6 +34,7 @@
 -export([next_arg/1]).
 -export([efilter/1]).
 -export([type_spec_to_signature/1]).
+-export([signature_to_type_spec/1]).
 
 -import(lists, [map/2,append/1,reverse/1]).
 
@@ -772,6 +773,43 @@ basic_spec_to_signature(Spec) ->
 	_ -> []
     end.
 
+signature_to_type_spec(Spec) ->
+    case Spec of
+	[?DBUS_BYTE]    -> byte;
+	[?DBUS_BOOLEAN] -> boolean;
+	[?DBUS_INT16]   -> int16;
+	[?DBUS_UINT16]  -> uint16;
+	[?DBUS_INT32]   -> int32;
+	[?DBUS_UINT32]  -> uint32;
+	[?DBUS_INT64]   -> int64;
+	[?DBUS_UINT64]  -> uint64;
+	[?DBUS_DOUBLE]  -> double;
+	[?DBUS_UNIX_FD] -> unix_fd;
+	[?DBUS_STRING]  -> string;
+	[?DBUS_VARIANT] -> variant;
+	[?DBUS_OBJPATH] -> objpath;
+	[?DBUS_ERLANG]  -> term;
+	[?DBUS_ARRAY,?DBUS_DICT_ENTRY_BEGIN|Es] ->
+	    {K,V,""} = dict_to_type_spec(Es),
+	    {dict,K,V};
+	[?DBUS_ARRAY|Es] ->
+	    {E,""} = next_arg(Es),  %% element type
+	    {array, signature_to_type_spec(E)};
+	[?DBUS_STRUCT_BEGIN|Es] ->
+	    {As,""} = signature_struct_to_type_spec(Es,[]),
+	    {struct, As}
+    end.
+
+signature_struct_to_type_spec([?DBUS_STRUCT_END|Es],Acc) ->
+    {reverse(Acc),Es};
+signature_struct_to_type_spec(Es,Acc) ->
+    {E,Es1} = next_arg(Es),
+    signature_struct_to_type_spec(Es1, [signature_to_type_spec(E)|Acc]).
+
+dict_to_type_spec(Es) ->
+    {K,Es1} = next_arg(Es),
+    {V,[?DBUS_DICT_ENTRY_END|Es2]} = next_arg(Es1),
+    {signature_to_type_spec(K),signature_to_type_spec(V),Es2}.
 
 %%
 %% re:run(Path, "(/[A-Za-z0-9_]+)+")

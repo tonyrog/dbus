@@ -37,6 +37,11 @@
 
 -compile(export_all).
 
+%% -define(debug(F,A), io:format((F),(A)).
+-define(debug(F,A), ok).
+-define(warning(F,A), io:format((F),(A))).
+
+
 %% status:
 %%   undefined
 %%   connected,
@@ -45,7 +50,8 @@
 %%   hello_sent
 %%   running
 -record(state, {
-	  status,
+	  status :: undefined | connected | auth_sent | authenticated |
+		    hello_sent | running,
 	  socket,             %% current socket
 	  addr,               %% used peer address
 	  addr_list = [],     %% list of addresses to test
@@ -53,6 +59,7 @@
 	  endian = little,
 	  wait_list = [],     %% [{Serial,From,Callback,Args}] 
 	  own_list  = [],     %% [{BusName, OwnerPid}]
+	  match_list = [],    %% [{Rule,#dbus_rule{} Rule,Ref,Pid}] 
 	  connection_name,    %% return value from hello
 	  buf = <<>>,         %% session data buffer
 	  client_serial = 1,
@@ -88,14 +95,23 @@ error(Connection, Fields, ErrorName, ErroText) ->
 %% @end
 %%--------------------------------------------------------------------
 open() ->
+    open(session).
+
+open(system) ->
+    case os:type() of
+	{unix, darwin} ->
+	    open("launchd:env=DBUS_LAUNCHD_SYSTEM_BUS_SOCKET");
+	{unix, linux} ->
+	    open("unix:path=/var/run/dbus/system_bus_socket")
+    end;
+open(session) ->
     case os:type() of
 	{unix, darwin} ->
 	    open("launchd:env=DBUS_LAUNCHD_SESSION_BUS_SOCKET");
 	{unix, linux} ->
-	    open("unix:path=/var/run/dbus/system_bus_socket")
-    end.
-
-
+	    Addr = os:getenv("DBUS_SESSION_BUS_ADDRESS"),
+	    open(Addr)
+    end;
 open(Address) ->
     {ok, C} = gen_server:start_link(?MODULE, [], []),
     ok = set_address(C, Address),
@@ -167,6 +183,8 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({call,Fields,Signature,Args}, From, State) ->
+    ?debug("call fields=~p, signature=~s args=~p\n",
+	   [Fields, Signature, Args]),
     case State#state.status of
 	running ->
 	    Endian = State#state.endian,
@@ -184,6 +202,14 @@ handle_call({call,Fields,Signature,Args}, From, State) ->
 		   Fd#dbus_field.interface =:= "org.freedesktop.DBus",
 		   Fd#dbus_field.destination =:= "org.freedesktop.DBus" ->
 			fun callback_release_name/4;
+		   Fd#dbus_field.member =:= "AddMatch",
+		   Fd#dbus_field.interface =:= "org.freedesktop.DBus",
+		   Fd#dbus_field.destination =:= "org.freedesktop.DBus" ->
+			fun callback_add_match/4;
+		   Fd#dbus_field.member =:= "RemoveMatch",
+		   Fd#dbus_field.interface =:= "org.freedesktop.DBus",
+		   Fd#dbus_field.destination =:= "org.freedesktop.DBus" ->
+			fun callback_remove_match/4;
 		   true ->
 			fun callback_return/4
 		end,
@@ -202,6 +228,8 @@ handle_call({call,Fields,Signature,Args}, From, State) ->
 
 %% must include path, interface, member
 handle_call({signal,Fields,Signature,Args}, _From, State) ->
+    ?debug("signal fields=~p, signature=~s args=~p\n",
+	   [Fields, Signature, Args]),
     case State#state.status of
 	running ->
 	    Endian = State#state.endian,
@@ -218,6 +246,8 @@ handle_call({signal,Fields,Signature,Args}, _From, State) ->
 	    {reply, {error,eneedauth}, State}
     end;
 handle_call({return,Fields,Signature,Args}, _From, State) ->
+    ?debug("return fields=~p, signature=~s args=~p\n",
+	   [Fields, Signature, Args]),
     case State#state.status of
 	running ->
 	    Endian = State#state.endian,
@@ -234,6 +264,8 @@ handle_call({return,Fields,Signature,Args}, _From, State) ->
 	    {reply, {error,eneedauth}, State}
     end;
 handle_call({error,Fields,ErrorName,ErrorText}, _From, State) ->
+    ?debug("error fields=~p, error=~s test=~s\n",
+	   [Fields, ErrorName,ErrorText]),
     case State#state.status of
 	running ->
 	    Endian = State#state.endian,
@@ -251,7 +283,7 @@ handle_call({error,Fields,ErrorName,ErrorText}, _From, State) ->
     end;
 
 handle_call({set_addr_list, As}, _From, State) ->
-    io:format("address list: ~p\n", [As]),
+    ?debug("address list: ~p\n", [As]),
     {reply, ok, State#state { addr_list = As }};
 
 handle_call(connect, _From, State) ->
@@ -376,10 +408,10 @@ handle_info({tcp, S, Data},
     handle_input(Data, State);
 handle_info({tcp, S, _Info = "DATA " ++ Line}, 
 	    State = #state{socket=S,status=auth_sent}) ->
-    io:format("~s: handle_info: ~p\n", [?MODULE, _Info]),
+    ?debug("~s: handle_info: ~p\n", [?MODULE, _Info]),
     Data = hex_to_list(strip_eol(Line)),
-    [Context, CookieId, ServerChallenge] = string:tokens(Data, " "),
-    io:format("Data: ~p,~p,~p ~n", [Context, CookieId, ServerChallenge]),
+    [_Context, CookieId, ServerChallenge] = string:tokens(Data, " "),
+    ?debug("Data: ~p,~p,~p ~n", [_Context, CookieId, ServerChallenge]),
     case read_cookie(CookieId) of
 	error ->
 	    {stop, {error, {no_cookie, CookieId}}, State};
@@ -393,7 +425,7 @@ handle_info({tcp, S, _Info = "DATA " ++ Line},
 
 handle_info({tcp, S, _Info="OK " ++ Line}, 
 	    State = #state{socket=S,status=auth_sent}=State) ->
-    io:format("~s: handle_info: ~p\n", [?MODULE, _Info]),
+    ?debug("~s: handle_info: ~p\n", [?MODULE, _Info]),
     Guid = strip_eol(Line),
     error_logger:info_msg("GUID ~p~n", [Guid]),
     ok = send(S, ["BEGIN\r\n"]),
@@ -405,7 +437,7 @@ handle_info({tcp, S, _Info="OK " ++ Line},
 			    guid=Guid }};
 handle_info({tcp, S, _Info="REJECTED " ++ Line}, 
 	    State = #state{socket=S,status=auth_sent}) ->
-    io:format("~s: handle_info: ~p\n", [?MODULE, _Info]),
+    ?debug("~s: handle_info: ~p\n", [?MODULE, _Info]),
     Meths=
 	lists:foldl(
 	  fun("DBUS_COOKIE_SHA1", Acc) -> [cookie|Acc];
@@ -429,7 +461,7 @@ handle_info({'DOWN',Mon,process,Pid,_Reason}, State) ->
 	    {noreply, State#state { own_list = OwnList }}
     end;
 handle_info(_Info, State) ->
-    io:format("~s: handle_info: unexpected ~p\n", [?MODULE, _Info]),
+    ?warning("~s: handle_info: unexpected ~p\n", [?MODULE, _Info]),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -472,9 +504,9 @@ calc_response(ServerChallenge, Challenge, Cookie) ->
     A1 = ServerChallenge ++ ":" ++ Challenge ++ ":" ++ Cookie,
     Digest = crypto:sha(A1),
     DigestHex = binary_to_hexlist(Digest),
-    io:format("A1: ~p\nn", [A1]),
+    ?debug("A1: ~p\nn", [A1]),
     Response = list_to_hexlist(Challenge ++ " " ++ DigestHex),
-    io:format("Reponse: ~p\n", [Response]),
+    ?debug("Reponse: ~p\n", [Response]),
     Response.
 
 i2h(I) -> 
@@ -535,7 +567,7 @@ read_cookie_(Fd, CookieId) ->
     end.
 
 send(S, Data) ->
-    io:format("~s: Send ~p\n", [?MODULE, iolist_to_binary(Data)]),
+    ?debug("~s: Send ~p\n", [?MODULE, iolist_to_binary(Data)]),
     gen_tcp:send(S, Data).
 
 handle_input(<<>>,State) ->
@@ -552,26 +584,32 @@ handle_input(Data,State) when is_binary(Data) ->
 	    if byte_size(Data1) < Length+P0 ->
 		    %% we should maybe optimize this, reading Length bytes
 		    %% wait for more data
-		    io:format("WAIT\n", []),
+		    ?debug("handle_input: need more data\n", []),
 		    {noreply, State#state { buf = Data1 }};
 	       true ->
 		    <<?PAD(P0),Body:Length/binary,Data3/binary>> = Data2,
 		    Fds = H#dbus_header.fields,
-		    Signature = Fds#dbus_field.signature,
-		    {Msg,_Y1,<<>>} =
-			dbus_codec:decode_args(H#dbus_header.endian,0,
-					       Signature,Body),
+		    Msg = case Fds#dbus_field.signature of
+			      undefined -> [];
+			      Signature ->
+				  {Message,_Y1,<<>>} =
+				      dbus_codec:decode_args(
+					H#dbus_header.endian,0,
+					Signature,Body),
+				  Message
+			  end,
 		    State1 = State#state { buf = Data3 },
 		    handle_msg(H, Msg, State1)
 	    end
     catch
 	error:more_data ->
-	    io:format("MORE DATA\n", []),
+	    ?debug("handle_input: need more data\n", []),
 	    {noreply, State#state { buf = Data1 }}
     end.
 
 handle_msg(H, Msg, State) ->
-    io:format("handle_msg: header=~p, msg=~p\n", [H, Msg]),
+    ?debug("handle_msg: header=~1000p, msg=~1000p\n", [H, Msg]),
+    handle_match_list(H, Msg, State),
     case H#dbus_header.message_type of
 	method_return ->
 	    Fds = H#dbus_header.fields,
@@ -630,6 +668,17 @@ handle_msg(H, Msg, State) ->
 	    end
     end.
 
+handle_match_list(H, Msg, State) ->
+    lists:foreach(
+      fun({_Rule,DRule,Ref,Pid}) ->
+	      case dbus_lib:match_rule(DRule,H,Msg) of
+		  true ->
+		      Pid ! {dbus_match,Ref,H,Msg};
+		  false ->
+		      ignore
+	      end
+      end, State#state.match_list).
+
 callback_return(Value,_Args, From, State) ->
     gen_server:reply(From, Value),
     State.
@@ -671,6 +720,37 @@ callback_release_name({ok,[Code]},[Name], From, State) ->
 callback_release_name(Value, [_Name], From, State) ->
     gen_server:reply(From, Value),
     State.
+
+
+%% Handle result of AddMatch
+callback_add_match({ok,[]},[Rule],From,State) ->
+    {Pid,_Mref} = From,  %% inital caller
+    Mon = erlang:monitor(process, Pid),
+    gen_server:reply(From, {ok,Mon}),
+    DRule = dbus_lib:parse_match(Rule),
+    MatchList = [{Rule,DRule,Mon,Pid}|State#state.match_list],
+    State#state { match_list = MatchList };
+callback_add_match(Value={error,_},_Args,From,State) ->
+    gen_server:reply(From, Value),
+    State.
+
+
+%% Handle result of RemoveMatch
+callback_remove_match({ok,[]},[Rule],From,State) ->
+    case lists:keytake(Rule,1,State#state.match_list) of
+	{value,{Rule,_DRule,Mon,_Pid},MatchList} ->
+	    gen_server:reply(From, ok),
+	    erlang:demonitor(Mon, [flush]),
+	    State#state { match_list = MatchList };
+	_ ->
+	    gen_server:reply(From, {error,not_found}),
+	    State
+    end;
+callback_remove_match(Value={error,_},_Args,From,State) ->
+    gen_server:reply(From, Value),
+    State.
+
+
 %%
 %% Handle result of Hello
 %%
