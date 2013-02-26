@@ -131,7 +131,11 @@ linux_files() ->
 builtin() ->
     Dst = code:priv_dir(dbus),
     BeamDir = filename:join(code:lib_dir(dbus), "ebin"),
-    Files = private_files() ++ linux_files(),
+    Files = private_files() ++ 
+	case os:type() of
+	    {unix,linix} -> linux_files();
+	    _ -> []
+	end,
     lists:foreach(
       fun({erl,Src,F}) ->
       	      SrcFile = filename:join(Src, F),

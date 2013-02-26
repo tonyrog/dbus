@@ -185,7 +185,8 @@ encode_little(Y,[?DBUS_DOUBLE],X) when is_float(X) ->
     P = pad_size(Y, 8),
     {?FLOAT(P,little,X,64), Y+P+8};
 
-encode_little(Y,[?DBUS_STRING],X) when is_list(X) ->
+encode_little(Y,[?DBUS_STRING],X0) when is_list(X0); is_atom(X0) ->
+    X = if is_atom(X0) -> atom_to_list(X0); true -> X0 end,
     P = pad_size(Y,4),
     String = unicode:characters_to_binary(X),
     Size   = byte_size(String),
@@ -322,7 +323,8 @@ encode_big(Y,[?DBUS_DOUBLE],X) when is_float(X) ->
     P = pad_size(Y, 8),
     {?FLOAT(P,big,X,64), Y+P+8};
 
-encode_big(Y,[?DBUS_STRING],X) when is_list(X) ->
+encode_big(Y,[?DBUS_STRING],X0) when is_list(X0); is_atom(X0) ->
+    X = if is_atom(X0) -> atom_to_list(X0); true -> X0 end,
     P = pad_size(Y,4),
     String = unicode:characters_to_binary(X),
     Size   = byte_size(String),

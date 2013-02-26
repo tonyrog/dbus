@@ -75,7 +75,10 @@ start_link(Connection) when is_pid(Connection) ->
 %% @end
 %%--------------------------------------------------------------------
 init([Connection]) ->
-    case org_freedesktop_dbus:request_name(Connection, ?NAME, 0) of
+    case org_freedesktop_dbus:request_name(Connection,
+					   [{destination,"org.freedesktop.DBus"},
+					    {path,"/org/freedesktop/DBus"}],
+					   ?NAME, 0) of
 	{ok,[1]} ->
 	    {ok, #state { connection=Connection }};
 	{ok,[_Res]} ->
@@ -140,7 +143,7 @@ handle_info({call,Connection,H, Msg}, State) ->
 			      reply_serial = H#dbus_header.serial },
 	    dbus_connection:error(Connection,
 				  F,
-				  "org.erlang.DBus.BadMember",
+				  "org.erlang.DBus.Error.BadMember",
 				  "No such Interface Member"),
 	    {noreply,State}
     end;
@@ -205,7 +208,7 @@ handle_erlang_call(Connection,H,[Server,Request], State) ->
 			      reply_serial = ReplySerial },
 	    dbus_connection:error(Connection,
 				  F,
-				  "org.erlang.DBus.NoServer",
+				  "org.erlang.DBus.Error.NoServer",
 				  "Server is not registered");
        true ->
 	    %% FIXME: we can do this "better"? by spliting
@@ -263,7 +266,7 @@ handle_erlang_rpc(Connection,H,[Mod,Fun,Args], State) ->
 						    reply_serial = ReplySerial },
 				  dbus_connection:error(Connection,
 							F,
-							"org.erlang.DBus.Crash",
+							"org.erlang.DBus.Error.Crash",
 							Text)
 			  end
 		  end),
@@ -275,7 +278,7 @@ handle_erlang_rpc(Connection,H,[Mod,Fun,Args], State) ->
 			      reply_serial = ReplySerial },
 	    dbus_connection:error(Connection,
 				  F,
-				  "org.erlang.DBus.BadRpc",
+				  "org.erlang.DBus.Error.BadRpc",
 				  "Module not loaded"),
 	    {noreply, State}
     end.    
@@ -319,6 +322,8 @@ evariant(X) when is_boolean(X) ->
     {[?DBUS_BOOLEAN],X};
 evariant(X) when is_binary(X) -> 
     {[?DBUS_ARRAY,?DBUS_BYTE],X};
+evariant(X) when is_atom(X) ->
+    {[?DBUS_STRING],atom_to_list(X)};
 evariant(X) when is_list(X) ->
     S = elist(X),
     if S =:= "av" ->
