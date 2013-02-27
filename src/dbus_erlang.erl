@@ -28,7 +28,7 @@
 -include("../include/dbus.hrl").
 
 %% API
--export([start_link/1]).
+-export([start_link/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -43,7 +43,10 @@
 
 -define(NAME, "org.erlang.DBus").
 
--record(state, { connection }).
+-record(state, { 
+	  name,       %% org.erlang.DBus.<name>
+	  connection 
+	 }).
 
 %%%===================================================================
 %%% API
@@ -56,8 +59,8 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(Connection) when is_pid(Connection) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Connection], []).
+start_link(Connection,Node) when is_pid(Connection), is_atom(Node) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Connection,Node], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -74,13 +77,15 @@ start_link(Connection) when is_pid(Connection) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([Connection]) ->
-    case org_freedesktop_dbus:request_name(Connection,
-					   [{destination,"org.freedesktop.DBus"},
-					    {path,"/org/freedesktop/DBus"}],
-					   ?NAME, 0) of
+init([Connection,Node]) ->
+    Name = ?NAME ++ "." ++ atom_to_list(Node),
+    case org_freedesktop_dbus:request_name(
+	   Connection,
+	   [{destination,"org.freedesktop.DBus"},
+	    {path,"/org/freedesktop/DBus"}], Name, 0) of
 	{ok,[1]} ->
-	    {ok, #state { connection=Connection }};
+	    link(Connection),
+	    {ok, #state { name=Name, connection=Connection }};
 	{ok,[_Res]} ->
 	    {stop, no_erlang_bus};
 	Error ->
@@ -139,7 +144,7 @@ handle_info({call,Connection,H, Msg}, State) ->
 	    handle_erlang_rpc(Connection,H,Msg,State);
 	_ ->
 	    F = #dbus_field { destination  = Fds#dbus_field.sender,
-			      sender = ?NAME,
+			      sender = State#state.name,
 			      reply_serial = H#dbus_header.serial },
 	    dbus_connection:error(Connection,
 				  F,
@@ -193,9 +198,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 handle_erlang_call(Connection,H,[Server,Request], State) ->
-    Fds = H#dbus_header.fields,
-    Sender = Fds#dbus_field.sender,
-    ReplySerial = H#dbus_header.serial,
+    Sender = State#state.name,
+    Destination = (H#dbus_header.fields)#dbus_field.sender,
+    Serial = H#dbus_header.serial,
     Pid =
 	try list_to_existing_atom(Server) of
 	    XServer -> erlang:whereis(XServer)
@@ -203,25 +208,18 @@ handle_erlang_call(Connection,H,[Server,Request], State) ->
 	    error:_ -> undefined
 	end,
     if Pid =:= undefined ->
-	    F = #dbus_field { destination  = Sender,
-			      sender = ?NAME,
-			      reply_serial = ReplySerial },
-	    dbus_connection:error(Connection,
-				  F,
-				  "org.erlang.DBus.Error.NoServer",
-				  "Server is not registered");
+	    reply_error(Connection,Sender,Destination,Serial,
+			"NoServer", "Server is not registered");
        true ->
 	    %% FIXME: we can do this "better"? by spliting
 	    %% the gener_server:call in two sides and handle
 	    %% the returns manually!
-	    spawn(fun() ->
-			  Reply = gen_server:call(Pid, Request),
-			  Fd = #dbus_field { destination  = Sender,
-					    sender = ?NAME,
-					    reply_serial = ReplySerial },
-			  dbus_connection:return(Connection, Fd, [?DBUS_ERLANG],
-						 [Reply])
-		  end)
+	    spawn(
+	      fun() ->
+		      Reply = gen_server:call(Pid, Request),
+		      reply(Connection,Sender,Destination,Serial,
+			    [?DBUS_ERLANG],[Reply])
+	      end)
     end,
     {noreply, State}.
 
@@ -242,47 +240,45 @@ handle_erlang_cast(_Connection,_H,[Server,Msg],State) ->
 
 
 handle_erlang_rpc(Connection,H,[Mod,Fun,Args], State) ->
-    Fds = H#dbus_header.fields,
-    Sender = Fds#dbus_field.sender,
-    ReplySerial = H#dbus_header.serial,
+    Sender = State#state.name,
+    Destination = (H#dbus_header.fields)#dbus_field.sender,
+    Serial = H#dbus_header.serial,
     try {list_to_existing_atom(Mod),list_to_existing_atom(Fun)} of
 	{M,F} ->
 	    spawn(fun() ->
 			  try apply(M,F,Args) of
 			      Reply ->
-				  Fd = #dbus_field { destination  = Sender,
-						     sender = ?NAME,
-						     reply_serial = ReplySerial
-						   },
-				  dbus_connection:return(Connection, Fd, 
-							 [?DBUS_ERLANG],
-							 [Reply])
+				  reply(Connection,Sender,Destination,Serial,
+					[?DBUS_ERLANG], [Reply])
 			  catch
 			      error:Reason ->
 				  Text = lists:flatten(io_lib:format("~p", 
 								     [Reason])),
-				  F = #dbus_field { destination = Sender,
-						    sender = ?NAME,
-						    reply_serial = ReplySerial },
-				  dbus_connection:error(Connection,
-							F,
-							"org.erlang.DBus.Error.Crash",
-							Text)
+				  reply_error(Connection,Sender,Destination,
+					      Serial,"Crash", Text)
 			  end
 		  end),
 	    {noreply, State}
     catch
 	error:_ ->
-	    F = #dbus_field { destination  = Sender,
-			      sender = ?NAME,
-			      reply_serial = ReplySerial },
-	    dbus_connection:error(Connection,
-				  F,
-				  "org.erlang.DBus.Error.BadRpc",
-				  "Module not loaded"),
+	    reply_error(Connection,Sender,Destination,Serial,
+			"BadRpc", "Module not loaded"),
 	    {noreply, State}
     end.    
 
+reply(Connection, Sender, Destination, Serial, Signature, Value) ->
+    F = #dbus_field { destination  = Destination,
+		      sender       = Sender,
+		      reply_serial = Serial },
+    dbus_connection:return(Connection, F, Signature, Value).
+
+reply_error(Connection, Sender, Destination, Serial, Error, Text) ->
+    F = #dbus_field { destination  = Destination,
+		      sender       = Sender,
+		      reply_serial = Serial },
+    dbus_connection:error(Connection, F,
+			  "org.erlang.DBus.Error."++Error,
+			  Text).
 
 
 -define(is_unsigned(X,N), ((X) band (bnot ((1 bsl (N))-1)) =:= 0)).
