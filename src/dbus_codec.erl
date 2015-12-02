@@ -438,6 +438,7 @@ decode_args_little(Y, [], Bin0) ->
     {[],Y,Bin0};
 decode_args_little(Y, Es, Bin0) ->
     {Spec,Es1} = next_arg(Es),
+%%    io:format("Spec = ~s\n", [Spec]),
     {X,Y1,Bin1} = decode_little(Y, Spec, Bin0),
     {Xs,Y2,Bin2} = decode_args_little(Y1,Es1,Bin1),
     {[X|Xs],Y2,Bin2}.
@@ -540,6 +541,8 @@ decode_little(Y,[?DBUS_ARRAY|Es], Bin) ->
     {Size,Y1,Bin1} = decode_little(Y,[?DBUS_UINT32],Bin),
     A = alignment(AEs),
     P0 = pad_size(Y1,A),
+%%    io:format("Y1=~w,Size=~w,alignment=~w,pad=~w,size(Bin1)=~w,Bin1=~p\n", 
+%%	      [Y1,Size,A,P0,byte_size(Bin1),Bin1]),
     ?NEED_SIZE(Bin1, P0+Size),
     <<?PAD(P0),Bin2:Size/binary,T/binary>> = Bin1,
     {Elems,_} = decode_array_elements_little(0,AEs,Bin2),

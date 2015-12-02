@@ -63,7 +63,6 @@ arg_name([C|Cs]) ->
 arg_name_([$-|Cs]) -> [$_|arg_name_(Cs)];
 arg_name_([C|Cs]) ->  [C |arg_name_(Cs)];
 arg_name_([]) ->  [].
-    
 
 private_files() ->
     D = code:priv_dir(dbus),
@@ -81,71 +80,76 @@ private_files() ->
 
 linux_files() ->
     D = "/usr/share/dbus-1/interfaces",
-    [{xml,D,F} ||
-	F <- ["org.freedesktop.UDisks.xml",
-	      "org.fedoraproject.Config.Printing.xml",
-	      "org.freedesktop.Accounts.User.xml",
-	      "org.freedesktop.Accounts.xml",
-	      "org.freedesktop.Avahi.AddressResolver.xml",
-	      "org.freedesktop.Avahi.DomainBrowser.xml",
-	      "org.freedesktop.Avahi.EntryGroup.xml",
-	      "org.freedesktop.Avahi.HostNameResolver.xml",
-	      "org.freedesktop.Avahi.RecordBrowser.xml",
-	      "org.freedesktop.Avahi.Server.xml",
-	      "org.freedesktop.Avahi.ServiceBrowser.xml",
-	      "org.freedesktop.Avahi.ServiceResolver.xml",
-	      "org.freedesktop.Avahi.ServiceTypeBrowser.xml",
-	      "org.freedesktop.colord.sane.xml",
-	      "org.freedesktop.ColorManager.Device.xml",
-	      "org.freedesktop.ColorManager.Profile.xml",
-	      "org.freedesktop.ColorManager.Sensor.xml",
-	      "org.freedesktop.ColorManager.xml",
-	      "org.freedesktop.ModemManager.Modem.Cdma.xml",
-	      "org.freedesktop.ModemManager.Modem.Firmware.xml",
-	      "org.freedesktop.ModemManager.Modem.Gsm.Card.xml",
-	      "org.freedesktop.ModemManager.Modem.Gsm.Contacts.xml",
-	      "org.freedesktop.ModemManager.Modem.Gsm.Hso.xml",
-	      "org.freedesktop.ModemManager.Modem.Gsm.Network.xml",
-	      "org.freedesktop.ModemManager.Modem.Gsm.SMS.xml",
-	      "org.freedesktop.ModemManager.Modem.Gsm.Ussd.xml",
-	      "org.freedesktop.ModemManager.Modem.Gsm.xml",
-	      "org.freedesktop.ModemManager.Modem.Location.xml",
-	      "org.freedesktop.ModemManager.Modem.Simple.xml",
-	      "org.freedesktop.ModemManager.Modem.Time.xml",
-	      "org.freedesktop.ModemManager.Modem.xml",
-	      "org.freedesktop.ModemManager.xml",
-	      "org.freedesktop.RealtimeKit1.xml",
-	      "org.freedesktop.UDisks.Adapter.xml",
-	      "org.freedesktop.UDisks.Device.xml",
-	      "org.freedesktop.UDisks.Expander.xml",
-	      "org.freedesktop.UDisks.Port.xml",
-	      "org.freedesktop.UDisks.xml",
-	      "org.freedesktop.UPower.Device.xml",
-	      "org.freedesktop.UPower.KbdBacklight.xml",
-	      "org.freedesktop.UPower.QoS.xml",
-	      "org.freedesktop.UPower.Wakeups.xml",
-	      "org.freedesktop.UPower.xml"
-	     ]
+    {ok,Files} = file:list_dir(D),
+    [ {xml,D,F} || F <- Files, filename:extension(F) =:= ".xml" ].
+
+%% old list
+-ifdef(not_used).
+linux_list_1() ->
+    ["org.freedesktop.UDisks.xml",
+     "org.fedoraproject.Config.Printing.xml",
+     "org.freedesktop.Accounts.User.xml",
+     "org.freedesktop.Accounts.xml",
+     "org.freedesktop.Avahi.AddressResolver.xml",
+     "org.freedesktop.Avahi.DomainBrowser.xml",
+     "org.freedesktop.Avahi.EntryGroup.xml",
+     "org.freedesktop.Avahi.HostNameResolver.xml",
+     "org.freedesktop.Avahi.RecordBrowser.xml",
+     "org.freedesktop.Avahi.Server.xml",
+     "org.freedesktop.Avahi.ServiceBrowser.xml",
+     "org.freedesktop.Avahi.ServiceResolver.xml",
+     "org.freedesktop.Avahi.ServiceTypeBrowser.xml",
+     "org.freedesktop.colord.sane.xml",
+     "org.freedesktop.ColorManager.Device.xml",
+     "org.freedesktop.ColorManager.Profile.xml",
+     "org.freedesktop.ColorManager.Sensor.xml",
+     "org.freedesktop.ColorManager.xml",
+     "org.freedesktop.ModemManager.Modem.Cdma.xml",
+     "org.freedesktop.ModemManager.Modem.Firmware.xml",
+     "org.freedesktop.ModemManager.Modem.Gsm.Card.xml",
+     "org.freedesktop.ModemManager.Modem.Gsm.Contacts.xml",
+     "org.freedesktop.ModemManager.Modem.Gsm.Hso.xml",
+     "org.freedesktop.ModemManager.Modem.Gsm.Network.xml",
+     "org.freedesktop.ModemManager.Modem.Gsm.SMS.xml",
+     "org.freedesktop.ModemManager.Modem.Gsm.Ussd.xml",
+     "org.freedesktop.ModemManager.Modem.Gsm.xml",
+     "org.freedesktop.ModemManager.Modem.Location.xml",
+     "org.freedesktop.ModemManager.Modem.Simple.xml",
+     "org.freedesktop.ModemManager.Modem.Time.xml",
+     "org.freedesktop.ModemManager.Modem.xml",
+     "org.freedesktop.ModemManager.xml",
+     "org.freedesktop.RealtimeKit1.xml",
+     "org.freedesktop.UDisks.Adapter.xml",
+     "org.freedesktop.UDisks.Device.xml",
+     "org.freedesktop.UDisks.Expander.xml",
+     "org.freedesktop.UDisks.Port.xml",
+     "org.freedesktop.UDisks.xml",
+     "org.freedesktop.UPower.Device.xml",
+     "org.freedesktop.UPower.KbdBacklight.xml",
+     "org.freedesktop.UPower.QoS.xml",
+     "org.freedesktop.UPower.Wakeups.xml",
+     "org.freedesktop.UPower.xml"
     ].
+-endif.
 
 builtin() ->
     Dst = code:priv_dir(dbus),
     BeamDir = filename:join(code:lib_dir(dbus), "ebin"),
     Files = private_files() ++ 
 	case os:type() of
-	    {unix,linix} -> linux_files();
+	    {unix,linux} -> linux_files();
 	    _ -> []
 	end,
     lists:foreach(
       fun({erl,Src,F}) ->
       	      SrcFile = filename:join(Src, F),
 	      io:format("Generate: ~s\n", [SrcFile]),
-	      DstFiles = generate_erl(SrcFile,Dst),
+	      DstFiles = generate_from_erl(SrcFile,Dst),
 	      compile_files(DstFiles, BeamDir, []);
 	 ({xml,Src,F}) ->
       	      SrcFile = filename:join(Src, F),
 	      io:format("Generate: ~s\n", [SrcFile]),
-	      DstFiles = generate_xml(SrcFile,Dst),
+	      DstFiles = generate_from_xml(SrcFile,Dst),
 	      compile_files(DstFiles, BeamDir, [])
       end, Files).
 %%
@@ -179,25 +183,29 @@ compile_file(File,BeamDir) ->
     end.
 
 %% generate from xml file
-generate_xml(In,OutDir) ->
+generate_from_xml(In,OutDir) ->
     case dbus_xml:load(In) of
 	{ok,[]} ->
-	    {error,missing_interface};
+	    io:format("Error: ~p\n", [{error,missing_interface}]),
+	    [];
 	{ok,IFs} ->
 	    generate_interfaces(IFs, OutDir, []);
 	Error={error,_} ->
-	    Error
+	    io:format("Error: ~p\n", [Error]),
+	    []
     end.
 
 %% generate from erlang (consult) file
-generate_erl(In,OutDir) ->
+generate_from_erl(In,OutDir) ->
     case file:consult(In) of
 	{ok,[]} ->
-	    {error,missing_interface};
+	    io:format("Error: ~p\n", [{error,missing_interface}]),
+	    [];
 	{ok,IFs} ->
 	    generate_interfaces(IFs, OutDir, []);
 	Error={error,_} ->
-	    Error
+	    io:format("Error: ~p\n", [Error]),
+	    []
     end.
 
 generate_interfaces([{interface,Name,Procs}|IFs], Dir, Acc) ->

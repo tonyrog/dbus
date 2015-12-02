@@ -29,6 +29,8 @@
 
 %% API
 -export([start_link/2]).
+-export([start/1]).
+-export([rpc/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -52,6 +54,10 @@
 %%% API
 %%%===================================================================
 
+start(Node) when is_atom(Node) ->
+    {ok,Connection} = dbus:open(),
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Connection,Node], []).
+    
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
@@ -61,6 +67,18 @@
 %%--------------------------------------------------------------------
 start_link(Connection,Node) when is_pid(Connection), is_atom(Node) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Connection,Node], []).
+
+%% Demo RPC
+
+rpc(Node, Mod, Fun, Args) ->
+    {ok,Connection} = dbus:open(),
+    Result = 
+	org_erlang_dbus:rpc(Connection, 
+			    [{destination,?NAME++"."++atom_to_list(Node)}],
+			    Mod, Fun, Args),
+    dbus:close(Connection),
+    Result.
+
 
 %%%===================================================================
 %%% gen_server callbacks

@@ -35,6 +35,8 @@ connect({"unix:",[{"path",Path}]}) ->
     afunix:connect(Path, connect_options());
 connect({"unix:",[{"abstract",Path},{"guid",_GUID}]}) ->
     afunix:connect([0,Path], connect_options());
+connect({"unix:",[{"abstract",Path}]}) ->
+    afunix:connect([0,Path], connect_options());
 connect({"tcp:",[{"family","ipv4"},{"host",Host},{"port",Port}]}) ->
     gen_tcp:connect(Host, list_to_integer(Port), connect_options());
 connect({"tcp:",[{"host",Host},{"port",Port}]}) ->
