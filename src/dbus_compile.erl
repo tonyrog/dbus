@@ -263,8 +263,14 @@ generate_args([{Type,Name}|Ts], SigList, ArgList) ->
 	      _ ->
 		  dbus_codec:type_spec_to_signature(Type)
 	  end,
-    Arg = arg_name(Name),
+    Arg = case Name =:= undefined of 
+        true ->
+            "unnamed";
+        false ->
+            arg_name(Name)
+    end,
     generate_args(Ts, [Sig|SigList], [Arg|ArgList]);
+
 generate_args([], SigList, ArgList) ->
     {lists:append(lists:reverse(SigList)),
      lists:reverse(ArgList)}.
