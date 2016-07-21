@@ -294,7 +294,8 @@ handle_erlang_introspect(Connection,H,_,State) ->
     Priv = filename:join(filename:dirname(Ebin), "priv"),
     {ok, File} = file:read_file(filename:join(Priv, "introspect.xml")),
     Content = unicode:characters_to_list(File), 
-    reply(Connection,Sender,Destination,Serial,"s", [Content]).
+    reply(Connection,Sender,Destination,Serial,"s",[Content]),
+	{noreply, State}.
 
 reply(Connection, Sender, Destination, Serial, Signature, Value) ->
     F = #dbus_field { destination  = Destination,
