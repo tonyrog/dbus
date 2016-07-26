@@ -1,0 +1,10 @@
+<node name="/" >
+  <interface name='org.erlang.DBus'>
+      <method name='Call'>
+          <arg direction='in' type='s' name='server'></arg>
+          <arg direction='in' type='s' name='method'></arg>
+          <arg direction='out' type='s' name='return'></arg>
+          <arg direction='out' type='i' name='status'></arg>
+      </method>
+  </interface>
+</node>
