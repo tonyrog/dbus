@@ -23,8 +23,6 @@
 
 -module(dbus_codec).
 
--compile(export_all).
-
 -include("../include/dbus.hrl").
 
 -export([encode_args/2,
@@ -35,8 +33,19 @@
 -export([efilter/1]).
 -export([type_spec_to_signature/1]).
 -export([signature_to_type_spec/1]).
+-export([is_valid_interface_name/1,
+	 is_valid_bus_name/1,
+	 is_valid_member_name/1]).
+-export([validate_class/2, validate_string/2]).
+-export([size/1]).
+
 
 -import(lists, [map/2,append/1,reverse/1]).
+
+-ifdef(TEST).
+-export([test/0]).
+-export([perf/0]).
+-endif.
 
 -define(UINT(P,E,X,Sz),  <<?PAD(P),(X):Sz/E-unsigned-integer>>).
 -define(INT(P,E,X,Sz),	 <<?PAD(P),(X):Sz/E-signed-integer>>).
@@ -853,7 +862,7 @@ is_valid_interface_name(_Interface) ->
     %%
     true.
 
-is_validate_bus_name(_Bus) ->
+is_valid_bus_name(_Bus) ->
     %% <bus-name> = ':' <uname> | <name>
     %% <uname> = <uelem> '.' <uelem> ( '.' <uelem> )*
     %% <name> = <elem> '.' <elem> ( '.' <elem> )*
@@ -919,6 +928,8 @@ validate_string([],[])->
     true;
 validate_string(_,_) ->
     false.
+
+-ifdef(TEST).
 
 %%
 %% Testing
@@ -1064,3 +1075,5 @@ test_type(Endian, Spec, Value) ->
        true ->
 	    Value1 = Value
     end.
+
+-endif.
