@@ -29,6 +29,8 @@
 
 %% API
 -export([start_link/2]).
+-export([start/1]).
+-export([rpc/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -52,6 +54,10 @@
 %%% API
 %%%===================================================================
 
+start(Node) when is_atom(Node) ->
+    {ok,Connection} = dbus:open(),
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Connection,Node], []).
+    
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
@@ -61,6 +67,18 @@
 %%--------------------------------------------------------------------
 start_link(Connection,Node) when is_pid(Connection), is_atom(Node) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Connection,Node], []).
+
+%% Demo RPC
+
+rpc(Node, Mod, Fun, Args) ->
+    {ok,Connection} = dbus:open(),
+    Result = 
+	org_erlang_dbus:rpc(Connection, 
+			    [{destination,?NAME++"."++atom_to_list(Node)}],
+			    Mod, Fun, Args),
+    dbus:close(Connection),
+    Result.
+
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -142,6 +160,8 @@ handle_info({call,Connection,H, Msg}, State) ->
 	    handle_erlang_call(Connection,H,Msg,State);
 	"Rpc" ->
 	    handle_erlang_rpc(Connection,H,Msg,State);
+    "Introspect" ->
+        handle_erlang_introspect(Connection,H,Msg,State);
 	_ ->
 	    F = #dbus_field { destination  = Fds#dbus_field.sender,
 			      sender = State#state.name,
@@ -265,6 +285,17 @@ handle_erlang_rpc(Connection,H,[Mod,Fun,Args], State) ->
 			"BadRpc", "Module not loaded"),
 	    {noreply, State}
     end.    
+
+handle_erlang_introspect(Connection,H,_,State) ->
+    Sender = State#state.name,
+    Destination = (H#dbus_header.fields)#dbus_field.sender,
+    Serial = H#dbus_header.serial,
+    Ebin = filename:dirname(code:which(?MODULE)),
+    Priv = filename:join(filename:dirname(Ebin), "priv"),
+    {ok, File} = file:read_file(filename:join(Priv, "introspect.xml")),
+    Content = unicode:characters_to_list(File), 
+    reply(Connection,Sender,Destination,Serial,"s",[Content]),
+	{noreply, State}.
 
 reply(Connection, Sender, Destination, Serial, Signature, Value) ->
     F = #dbus_field { destination  = Destination,

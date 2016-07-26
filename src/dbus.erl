@@ -37,6 +37,10 @@ open() ->
 open(Address) ->
     dbus_connection:open(Address).
 
+%% this will setup a number of interfaces
+setup() ->
+    dbus_compile:builtin().
+
 monitor_devices() ->
     {ok,C} = open(system),
     Rs =

@@ -18,6 +18,7 @@
 -define(__DBUS_HRL__, true).
 
 -define(PAD(Bytes),  0:(Bytes)/integer-unit:8).
+-define(SKIP(Bytes),  _:(Bytes)/integer-unit:8).
 
 -define(PAD_SIZE(Y,N),
 	(((N)-((Y) band ((N)-1))) band ((N)-1))).

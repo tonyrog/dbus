@@ -476,8 +476,11 @@ handle_info(_Info, State) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, State) ->
-    gen_tcp:close(State#state.socket),
-    ok.
+    if State#state.socket =/= undefined ->
+	    gen_tcp:close(State#state.socket);
+       true ->
+	    ok
+    end.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -592,11 +595,17 @@ handle_input(Data,State) when is_binary(Data) ->
 		    Msg = case Fds#dbus_field.signature of
 			      undefined -> [];
 			      Signature ->
-				  {Message,_Y1,<<>>} =
-				      dbus_codec:decode_args(
+				  try dbus_codec:decode_args(
 					H#dbus_header.endian,0,
-					Signature,Body),
-				  Message
+					Signature,Body) of
+				      {Message,_Y1,<<>>} ->
+					  Message
+				  catch
+				      error:_Reason ->
+					  io:format("decode args error: ~p\n",
+						    [erlang:get_stacktrace()]),
+					  ["error"]
+				  end
 			  end,
 		    State1 = State#state { buf = Data3 },
 		    handle_msg(H, Msg, State1)
