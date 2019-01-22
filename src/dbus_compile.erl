@@ -171,14 +171,14 @@ compile_file(File,BeamDir) ->
 			     return_errors,
 			     return_warnings]) of
 	{ok,Module,Warnings} ->
-	    [io:format("~s\n", [compile:format_error(W)]) ||
-		W <- Warnings],
+	    [io:format("~s:~w: ~s\n", [F,Line,Mod:format_error(W)]) ||
+		{F,[{Line,Mod,W}]} <- Warnings],
 	    {ok,Module};
 	{error,Errors,Warnings} ->
-	    [io:format("~s\n", [compile:format_error(E)]) ||
-		E <- Errors],
-	    [io:format("~s\n", [compile:format_error(W)]) ||
-		W <- Warnings],
+	    [io:format("~s:~w: ~s\n", [F,Line,Mod:format_error(E)]) ||
+		{F,[{Line,Mod,E}]} <- Errors],
+	    [io:format("~s:~w: ~s\n", [F,Line,Mod:format_error(W)]) ||
+		{F,[{Line,Mod,W}]} <- Warnings],
 	    error
     end.
 

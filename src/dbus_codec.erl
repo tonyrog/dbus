@@ -25,7 +25,7 @@
 
 -include("../include/dbus.hrl").
 
--export([encode_args/2,
+-export([encode_args/2, encode_args/4,
 	 encode/2, encode/3, encode/4,
 	 decode_args/4,
 	 decode/2, decode/3, decode/4]).
