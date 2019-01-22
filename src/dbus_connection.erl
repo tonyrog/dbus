@@ -498,14 +498,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 calc_challenge() ->
-    {MegaSecs, Secs, _MicroSecs} = now(),
-    UnixTime = MegaSecs * 1000000 + Secs,
+    UnixTime = erlang:system_time(seconds),
     Challenge = list_to_hexlist("Hello " ++ integer_to_list(UnixTime)),
     Challenge.
 
 calc_response(ServerChallenge, Challenge, Cookie) ->
     A1 = ServerChallenge ++ ":" ++ Challenge ++ ":" ++ Cookie,
-    Digest = crypto:sha(A1),
+    Digest = crypto:hash(sha,A1),
     DigestHex = binary_to_hexlist(Digest),
     ?debug("A1: ~p\nn", [A1]),
     Response = list_to_hexlist(Challenge ++ " " ++ DigestHex),
@@ -601,9 +600,9 @@ handle_input(Data,State) when is_binary(Data) ->
 				      {Message,_Y1,<<>>} ->
 					  Message
 				  catch
-				      error:_Reason ->
+				      error:_Reason:Stack ->
 					  io:format("decode args error: ~p\n",
-						    [erlang:get_stacktrace()]),
+						    [Stack]),
 					  ["error"]
 				  end
 			  end,
