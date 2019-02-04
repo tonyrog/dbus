@@ -68,6 +68,8 @@
 
 -include("../include/dbus.hrl").
 
+
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -583,7 +585,7 @@ handle_input(Data,State) when is_binary(Data) ->
 	{H,Y,Data2} ->
 	    P0 = ?PAD_SIZE(Y,8),
 	    Length = H#dbus_header.length,
-	    if byte_size(Data1) < Length+P0 ->
+	    if byte_size(Data2) < Length+P0 ->
 		    %% we should maybe optimize this, reading Length bytes
 		    %% wait for more data
 		    ?debug("handle_input: need more data\n", []),
