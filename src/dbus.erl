@@ -88,7 +88,7 @@ monitor_loop(Refs) ->
 			       Fds#dbus_field.path,
 			       Fds#dbus_field.interface,
 			       Fds#dbus_field.member,
-			       Message
+			       cstring(Message)
 			      ]),
 		    monitor_loop(Refs);
 		false ->
@@ -106,3 +106,14 @@ monitor_loop(Refs) ->
 	    monitor_loop(Refs)
     end.
 
+%% remove terminating 0 in cstrings for nicer looking output
+cstring([H|T]) -> [cstring(H)|cstring(T)];
+cstring([]) -> [];
+cstring(X) when is_tuple(X) -> list_to_tuple(cstring(tuple_to_list(X)));
+cstring(X) when is_binary(X) ->
+    S = byte_size(X)-1,
+    case X of
+	<<Y:S/binary,0>> -> Y;
+	_ -> X
+    end;
+cstring(X) -> X.
