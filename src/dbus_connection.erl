@@ -433,7 +433,7 @@ handle_info({tcp, S, _Info="OK " ++ Line},
     Guid = strip_eol(Line),
     error_logger:info_msg("GUID ~p~n", [Guid]),
     ok = send(S, ["BEGIN\r\n"]),
-    ok = inet:setopts(S, [binary, {packet,0}]),
+    ok = inet:setopts(S, [binary, {packet,0}, {active,once}]),
     [{0,From,undefined,[]}] = State#state.wait_list,
     gen_server:reply(From, ok),  %% auth done!
     {noreply, set_status(authenticated,
@@ -453,7 +453,6 @@ handle_info({tcp, S, _Info="REJECTED " ++ Line},
     [{0,From,undefined,[]}] = State#state.wait_list,
     gen_server:reply(From,
 		     {error,{auth_rejected,reverse(Meths)}}),
-
     {noreply, set_status(undefined, 
 			 State#state { socket=undefined, 
 				       wait_list = []
