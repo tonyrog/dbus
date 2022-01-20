@@ -37,7 +37,7 @@
 
 -compile(export_all).
 
-%% -define(debug(F,A), io:format((F),(A)).
+%% -define(debug(F,A), io:format((F),(A))).
 -define(debug(F,A), ok).
 -define(warning(F,A), io:format((F),(A))).
 
@@ -292,10 +292,10 @@ handle_call(connect, _From, State) ->
 	    case dbus_lib:connect(State#state.addr_list) of
 		{ok, {S, A}} ->
 		    {reply, ok, 
-		     State#state{ status=connected, 
-				  client_serial = 1,
-				  server_serial = 1,
-				  addr=A, socket=S }};
+		     set_status(connected, 
+				State#state{ client_serial = 1,
+					     server_serial = 1,
+					     addr=A, socket=S })};
 		Error ->
 		    {reply, Error, State}
 	    end;
@@ -311,7 +311,7 @@ handle_call(disconnect, _From, State) ->
        true ->
 	    gen_tcp:close(State#state.socket)
     end,
-    {reply, ok, State#state { status = undefined }};
+    {reply, ok, set_status(undefined, State)};
 
 handle_call({authenticate,Type}, From, State) ->
     case State#state.status of
@@ -332,8 +332,9 @@ handle_call({authenticate,Type}, From, State) ->
 		    send(State#state.socket,
 			 "AUTH\r\n")
 	    end,
-	    {noreply, State#state { status=auth_sent,
-				    wait_list = [{0,From,undefined,[]}] }};
+	    {noreply, set_status(auth_sent,
+				 State#state {
+				   wait_list = [{0,From,undefined,[]}] })};
 	undefined ->
 	    {reply, {error, enotconn}, State};
 	_->
@@ -354,9 +355,10 @@ handle_call(hello, From, State) ->
 	    inet:setopts(State#state.socket, [{active,once}]),
 	    WaitList = [{Serial,From,fun callback_hello/4,[]} |
 			State#state.wait_list],
-	    {noreply, State#state { status=hello_sent, 
-				    client_serial = Serial + 1,
-				    wait_list = WaitList }};
+	    {noreply, set_status(hello_sent,
+				 State#state {
+				   client_serial = Serial + 1,
+				   wait_list = WaitList })};
 	_ ->
 	    {reply, {error,eneedauth}, State}
     end;
@@ -408,7 +410,7 @@ handle_info({tcp, S, Data},
     handle_input(Data, State);
 handle_info({tcp, S, _Info = "DATA " ++ Line}, 
 	    State = #state{socket=S,status=auth_sent}) ->
-    ?debug("~s: handle_info: ~p\n", [?MODULE, _Info]),
+    ?debug("~s: handle_info:DATA: ~p\n", [?MODULE, _Info]),
     Data = hex_to_list(strip_eol(Line)),
     [_Context, CookieId, ServerChallenge] = string:tokens(Data, " "),
     ?debug("Data: ~p,~p,~p ~n", [_Context, CookieId, ServerChallenge]),
@@ -424,20 +426,20 @@ handle_info({tcp, S, _Info = "DATA " ++ Line},
     end;
 
 handle_info({tcp, S, _Info="OK " ++ Line}, 
-	    State = #state{socket=S,status=auth_sent}=State) ->
-    ?debug("~s: handle_info: ~p\n", [?MODULE, _Info]),
+	    State = #state{socket=S,status=auth_sent}) ->
+    ?debug("~s: handle_info:OK: ~p\n", [?MODULE, _Info]),
     Guid = strip_eol(Line),
     error_logger:info_msg("GUID ~p~n", [Guid]),
     ok = send(S, ["BEGIN\r\n"]),
     ok = inet:setopts(S, [binary, {packet,0}]),
     [{0,From,undefined,[]}] = State#state.wait_list,
     gen_server:reply(From, ok),  %% auth done!
-    {noreply, State#state { status = authenticated,
-			    wait_list = [],
-			    guid=Guid }};
+    {noreply, set_status(authenticated,
+			 State#state { wait_list = [],
+				       guid=Guid })};
 handle_info({tcp, S, _Info="REJECTED " ++ Line}, 
 	    State = #state{socket=S,status=auth_sent}) ->
-    ?debug("~s: handle_info: ~p\n", [?MODULE, _Info]),
+    ?debug("~s: handle_info:REJCTED: ~p\n", [?MODULE, _Info]),
     Meths=
 	lists:foldl(
 	  fun("DBUS_COOKIE_SHA1", Acc) -> [cookie|Acc];
@@ -449,9 +451,11 @@ handle_info({tcp, S, _Info="REJECTED " ++ Line},
     [{0,From,undefined,[]}] = State#state.wait_list,
     gen_server:reply(From,
 		     {error,{auth_rejected,reverse(Meths)}}),
-    {noreply, State#state { socket=undefined, 
-			    wait_list = [],
-			    status=undefined }};
+
+    {noreply, set_status(undefined, 
+			 State#state { socket=undefined, 
+				       wait_list = []
+				     })};
 handle_info({'DOWN',Mon,process,Pid,_Reason}, State) ->
     case lists:keytake(Mon, 2, State#state.own_list) of
 	false ->
@@ -764,8 +768,11 @@ callback_remove_match(Value={error,_},_Args,From,State) ->
 %%
 callback_hello(Value={ok,Msg},_Args,From,State) ->
     gen_server:reply(From, Value),
-    State#state { status = running,
-		  connection_name = hd(Msg) };
+    set_status(running, State#state { connection_name = hd(Msg) });
 callback_hello(Value={error,_},_Args,From,State) ->
     gen_server:reply(From, Value),
-    State#state { status = authenticated }.
+    set_status(authenticated, State).
+
+set_status(NewStatus, State) ->
+    ?debug("set_status: ~w => ~w\n", [State#state.status, NewStatus]),
+    State#state { status = NewStatus }.

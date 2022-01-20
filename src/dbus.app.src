@@ -2,6 +2,7 @@
  [
   {description, "DBus for Erlang"},
   {vsn, git},
+  {modules, ["@@MODULES@@"]},
   {registered, []},
   {applications, [
                   kernel,

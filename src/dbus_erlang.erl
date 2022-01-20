@@ -160,8 +160,8 @@ handle_info({call,Connection,H, Msg}, State) ->
 	    handle_erlang_call(Connection,H,Msg,State);
 	"Rpc" ->
 	    handle_erlang_rpc(Connection,H,Msg,State);
-    "Introspect" ->
-        handle_erlang_introspect(Connection,H,Msg,State);
+	"Introspect" ->
+	    handle_erlang_introspect(Connection,H,Msg,State);
 	_ ->
 	    F = #dbus_field { destination  = Fds#dbus_field.sender,
 			      sender = State#state.name,
