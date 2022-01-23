@@ -37,6 +37,10 @@ open() ->
 open(Address) ->
     dbus_connection:open(Address).
 
+close(C) ->
+    dbus_connection:close(C).
+
+
 %% this will setup a number of interfaces
 setup() ->
     dbus_compile:builtin().

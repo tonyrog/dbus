@@ -30,6 +30,8 @@
 %% API
 -export([start_link/2]).
 -export([start/1]).
+-export([cast/3]).
+-export([call/3]).
 -export([rpc/4]).
 
 %% gen_server callbacks
@@ -44,6 +46,7 @@
 -define(SERVER, ?MODULE). 
 
 -define(NAME, "org.erlang.DBus").
+-define(PATH, "/org/erlang/DBus").
 
 -record(state, { 
 	  name,       %% org.erlang.DBus.<name>
@@ -74,11 +77,34 @@ rpc(Node, Mod, Fun, Args) ->
     {ok,Connection} = dbus:open(),
     Result = 
 	org_erlang_dbus:rpc(Connection, 
-			    [{destination,?NAME++"."++atom_to_list(Node)}],
+			    [{destination,?NAME++"."++atom_to_list(Node)},
+			     {path,?PATH++"/"++atom_to_list(Node)}
+			    ],
 			    Mod, Fun, Args),
     dbus:close(Connection),
     Result.
 
+cast(Node, Name, Message) ->
+    {ok,Connection} = dbus:open(),
+    Result = 
+	org_erlang_dbus:cast(Connection, 
+			     [{destination,?NAME++"."++atom_to_list(Node)},
+			      {path,?PATH++"/"++atom_to_list(Node)}
+			     ],
+			     Name, Message),
+    dbus:close(Connection),
+    Result.
+
+call(Node, Name, Request) ->
+    {ok,Connection} = dbus:open(),
+    Result = 
+	org_erlang_dbus:call(Connection, 
+			     [{destination,?NAME++"."++atom_to_list(Node)},
+			      {path,?PATH++"/"++atom_to_list(Node)}
+			     ],
+			     Name, Request),
+    dbus:close(Connection),
+    Result.
 
 %%%===================================================================
 %%% gen_server callbacks

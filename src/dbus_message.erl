@@ -196,11 +196,15 @@ encode_dbus_flags([no_reply_expected|Fs]) ->
     16#01 bor encode_dbus_flags(Fs);
 encode_dbus_flags([no_auto_start|Fs]) ->
     16#02 bor encode_dbus_flags(Fs);
+encode_dbus_flags([allow_interactive_authorization|Fs]) ->
+    16#04 bor encode_dbus_flags(Fs);
 encode_dbus_flags([]) ->  0.
 
 decode_dbus_flags(Flags) ->
     if Flags band 16#01 =/= 0 -> [no_reply_expected]; true -> [] end ++
-	if Flags band 16#02 =/= 0 -> [no_auto_start]; true -> [] end.
+	if Flags band 16#02 =/= 0 -> [no_auto_start]; true -> [] end ++
+	if Flags band 16#04 =/= 0 ->  [allow_interactive_authorization]; true -> [] end.
+		 
 %%
 %% Fields
 %%

@@ -27,6 +27,8 @@
 
 %% API
 -export([open/0, open/1]).
+-export([disconnect/1]).
+-export([close/1]).
 -export([call/4, signal/4, return/4, error/4]).
 
 %% gen_server callbacks
@@ -36,7 +38,7 @@
 -import(lists, [reverse/1]).
 
 -compile(export_all).
-
+ 
 %% -define(debug(F,A), io:format((F),(A))).
 -define(debug(F,A), ok).
 -define(warning(F,A), io:format((F),(A))).
@@ -122,6 +124,10 @@ open(Address) ->
     {ok,[_ConnectionName]} = hello(C),
     {ok, C}.
 
+close(C) ->
+    disconnect(C),
+    gen_server:call(C,stop).
+
 set_address(C, Address) ->
     As = dbus_lib:parse_address(Address),
     set_addr_list(C, As).
@@ -131,6 +137,9 @@ set_addr_list(C, AddrList) ->
 
 connect(C) ->
     gen_server:call(C, connect).
+
+disconnect(C) ->
+    gen_server:call(C, disconnect).
 
 authenticate(C, Type) ->
     gen_server:call(C, {authenticate,Type}).
@@ -313,7 +322,7 @@ handle_call(disconnect, _From, State) ->
        true ->
 	    gen_tcp:close(State#state.socket)
     end,
-    {reply, ok, set_status(undefined, State)};
+    {reply, ok, set_status(undefined, State#state{ socket = undefined })};
 
 handle_call({authenticate,Type}, From, State) ->
     case State#state.status of
@@ -377,7 +386,7 @@ handle_call(get_connection_name, _From, State) ->
     {reply, State#state.connection_name, State};
 	    
 handle_call(stop, _From, State) ->
-    {stop, normal, State}.
+    {stop, normal, ok, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -606,8 +615,8 @@ handle_input(Data,State) when is_binary(Data) ->
 					  Message
 				  catch
 				      error:_Reason:Stack ->
-					  io:format("decode args error: ~p\n",
-						    [Stack]),
+					  io:format("decode args error ~p:\n~p\n",
+						    [_Reason,Stack]),
 					  ["error"]
 				  end
 			  end,
@@ -617,7 +626,11 @@ handle_input(Data,State) when is_binary(Data) ->
     catch
 	error:more_data ->
 	    ?debug("handle_input: need more data\n", []),
-	    {noreply, State#state { buf = Data1 }}
+	    {noreply, State#state { buf = Data1 }};
+	error:Reason:Stack ->
+	    io:format("decode args error:~p\n~p\n",  
+		      [Reason,Stack]),
+	    {noreply, State}
     end.
 
 handle_msg(H, Msg, State) ->
