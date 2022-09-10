@@ -46,40 +46,26 @@
 -ifdef(TEST).
 -export([test/0]).
 -export([perf/0]).
+-compile(export_all).
 -endif.
 
--define(UINT(P,E,X,Sz),  <<?PAD(P),(X):Sz/E-unsigned-integer>>).
--define(INT(P,E,X,Sz),	 <<?PAD(P),(X):Sz/E-signed-integer>>).
--define(FLOAT(P,E,X,Sz), <<?PAD(P),(X):Sz/E-float>>).
+%% -define(TRACE(F,A), io:format((F),(A))).
+-define(TRACE(F,A), ok).
 
--define(MUINT(P,E,X,Sz,T),  <<?PAD(P),(X):Sz/E-unsigned-integer,T/binary>>).
--define(MINT(P,E,X,Sz,T),	 <<?PAD(P),(X):Sz/E-signed-integer,T/binary>>).
--define(MFLOAT(P,E,X,Sz,T), <<?PAD(P),(X):Sz/E-float,T/binary>>).
+%% -define(DBG(F,A), io:format((F),(A))).
+-define(DBG(F,A), ok).
 
 -define(MAX_STRING_SIZE,    16#ffffffff).
 -define(MAX_OBJPATH_SIZE,   16#ffffffff).
 -define(MAX_SIGNATURE_SIZE, 16#ff).
 -define(MAX_ARRAY_SIZE,     16#3ffffff).
 
-%% check if Bin contains enough data
--define(NEED_SIZE(Bin, N),
-	if byte_size((Bin)) < (N) ->
-		erlang:error(more_data);
-	   true ->
-		true
-	end).
-
--compile({inline,[pad_size/2]}).
-
-pad_size(Y,N) ->
-    case (Y band ((N)-1)) of
-	0 -> 0;
-	R -> N-R
-    end.
-%%    case N-(Y band ((N)-1)) of
-%%	N -> 0;
-%%	R -> R
-%%    end.
+%% -compile({inline,[pad_size/2]}).
+%% pad_size(Y,N) ->
+%%     case (Y band ((N)-1)) of
+%% 	0 -> 0;
+%% 	R -> N-R
+%%     end.
 
 size(?DBUS_BYTE)    -> 1;
 size(?DBUS_BOOLEAN) -> 4;
@@ -106,390 +92,258 @@ alignment([?DBUS_STRING|_])           -> 4;  %% 4-byte length
 alignment([?DBUS_OBJPATH|_])          -> 4;  %% 4-byte length
 alignment([?DBUS_SIGNATURE|_])        -> 1;  %% 1-byte length
 alignment([?DBUS_ARRAY|_])            -> 4;  %% length
-alignment([?DBUS_STRUCT|_])           -> 8;
+alignment([?DBUS_DICT_ENTRY_BEGIN|_]) -> 8;
 alignment([?DBUS_STRUCT_BEGIN|_])     -> 8;
 alignment([?DBUS_VARIANT|_])          -> 1;
+%% special
+alignment([?DBUS_STRUCT|_])           -> 8;
 alignment([?DBUS_DICT_ENTRY|_])       -> 8;
-alignment([?DBUS_DICT_ENTRY_BEGIN|_]) -> 8;
 alignment([?DBUS_UNIX_FD|_])          -> 4;
 %% special
-%% alignment([?DBUS_ERLANG|_])           -> 4. %% array binart
+%% alignment([?DBUS_ERLANG|_])           -> 4. %% array binary
 alignment([?DBUS_ERLANG|_])           -> 1.  %% variant
-
 
 
 %% @doc
 %%   Encode a sequence of data
 %% @end
-encode_args(Signature, Sequence) when is_list(Sequence) ->
-    encode_args(erlang:system_info(endian), 0, Signature, Sequence).
+encode_args(Signature, Xs) when is_list(Xs) ->
+    encode_args(Signature, Xs, 0, erlang:system_info(endian)).
 
-encode_args(little, Y, Signature, Sequence) ->
-    encode_args_little(Y, Signature, Sequence);
-encode_args(big, Y, Signature, Sequence) ->
-    encode_args_big(Y, Signature, Sequence).
+encode_args(Signature, Xs, Y, Endian) ->
+    encode_seq(Signature, Xs, Y, Endian).
 
-
-encode_args_little(Y, Es, [X|Xs]) when is_list(Es) ->
-    {E,Es1} = next_arg(Es),
-    {V,Y1}  = encode_little(Y,E,X),
-    {Vs,Y2} = encode_args_little(Y1,Es1,Xs),
-    {[V|Vs],Y2};
-encode_args_little(Y, _Es, []) ->
-    {[],Y}.
-
-encode_args_big(Y, Es, [X|Xs]) when is_list(Es) ->
-    {E,Es1} = next_arg(Es),
-    {V,Y1}  = encode_big(Y,E,X),
-    {Vs,Y2} = encode_args_big(Y1,Es1,Xs),
-    {[V|Vs],Y2};
-encode_args_big(Y, _Es, []) ->
-    {[],Y}.
-
+-spec encode(Signatur::string(), Value::term()) ->
+	  {Data::iodata(),Length::integer()}.
 
 encode(Signature,Value) ->
-    encode(erlang:system_info(endian),Signature,Value).
+    encode(Signature, Value,0,erlang:system_info(endian)).
 
-encode(Endian,Signature,Value) ->
-    encode(Endian,0,Signature,Value).
+-spec encode(Signatur::string(), Value::term(),
+	     Endian::little|big) -> {Data::iodata(),Length::integer()}.
 
-encode(little,Y,Signature,Value) ->
-    encode_little(Y,Signature,Value);
-encode(big,Y,Signature,Value) ->
-    encode_big(Y,Signature,Value).
+encode(Signature,Value,Endian) ->
+    encode(Signature,Value,0,Endian).
 
+-spec encode(Signatur::string(), X::term(), Y::integer(),
+	     Endian::little|big) -> {Data::iodata(),Length::integer()}.
 
-%% encode little endian data
-encode_little(Y,[?DBUS_BYTE], X) when is_integer(X) ->
-    {<<X:8>>,Y+1};
-encode_little(Y,[?DBUS_BOOLEAN],true) ->
-    P = pad_size(Y, 4),
-    {?UINT(P,little,1,32),Y+P+4};
-    
-encode_little(Y,[?DBUS_BOOLEAN],false) -> 
-    P = pad_size(Y, 4),
-    {?UINT(P,little,0,32),Y+P+4};
+%% consider re-introduce alignment before all entires	  
+encode(Signature, X, Y, Endian) ->
+    case Signature of
+	[?DBUS_BYTE] ->
+	    encode_byte(X, Y, Endian);
+	[?DBUS_BOOLEAN] ->
+	    case X of
+		true -> encode_uint32(1, Y, Endian);
+		false -> encode_uint32(0, Y, Endian)
+	    end;
+	[?DBUS_UINT16] ->
+	    encode_uint16(X, Y, Endian);
+	[?DBUS_UINT32] ->
+	    encode_uint32(X, Y, Endian);
+	[?DBUS_UINT64] ->
+	    encode_uint64(X, Y, Endian);
+	[?DBUS_INT16] ->
+	    encode_int16(X, Y, Endian);
+	[?DBUS_INT32] ->
+	    encode_int32(X, Y, Endian);
+	[?DBUS_INT64] ->
+	    encode_int64(X, Y, Endian);
+	[?DBUS_DOUBLE] ->
+	    encode_double(X, Y, Endian);
+	[?DBUS_STRING] ->
+	    encode_string(X, Y, ?MAX_STRING_SIZE, Endian);
+	[?DBUS_OBJPATH] ->
+	    case is_valid_objpath(X) of
+		false -> erlang:error(not_an_objpath);
+		true -> encode_string(X, Y, ?MAX_OBJPATH_SIZE,Endian)
+	    end;
+	[?DBUS_SIGNATURE] ->
+	    encode_string(X, Y, ?MAX_SIGNATURE_SIZE, Endian);
+	%% special case for binaries = "ay"
+	[?DBUS_ARRAY,?DBUS_BYTE] ->
+	    Bytes = iolist_to_binary(X),
+	    Len = byte_size(Bytes),
+	    if Len > ?MAX_ARRAY_SIZE -> erlang:error(array_too_long);
+	       true -> ok
+	    end,
+	    {LenBytes,LenSize} = encode_len(Len,Y,Endian),
+	    {[LenBytes,Bytes,0],Len+LenSize};
+	%% a{kv}
+	[?DBUS_ARRAY,?DBUS_DICT_ENTRY_BEGIN|Es] ->
+	    {KSig,Es1} = next_arg(Es),
+	    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
+	    Iter = maps:iterator(X),
+	    LenPad = ?PAD_SIZE(Y,4),     %% pad uint32 length
+	    Y0 = Y+LenPad,               %% start array length
+	    Y1 = Y0+4,                   %% array start
+	    EntPad = ?PAD_SIZE(Y1,8),    %% first entry pad
+	    case encode_dict(KSig,VSig,Y1+EntPad,Endian,Iter) of
+		{_,VSz} when VSz >= ?MAX_ARRAY_SIZE ->
+		    erlang:error(dict_too_large);
+		{Vs,VSz} ->
+		    {LenBytes,LenSize} = encode_len(VSz,Y,Endian),
+		    {[LenBytes,<<?PAD(EntPad)>>,Vs], LenSize+EntPad+VSz}
+	    end;
+	[?DBUS_ARRAY|Es] ->
+	    {ESig,""} = next_arg(Es),   %% element type
+	    LenPad = ?PAD_SIZE(Y,4),    %% pad uint32 length
+	    Y0 = Y+LenPad,              %% y0 is start of UINT32 
+	    Y1 = Y0+4,                  %% y1 is after UINT32
+	    A  = alignment(ESig),       %% alignment for array
+	    EntPad = ?PAD_SIZE(Y1,A),   %% byte alignment to first element
+	    case encode_array(ESig,X,Y1+EntPad,Endian) of
+		{_,VSz} when VSz > ?MAX_ARRAY_SIZE -> 
+		    erlang:error(array_too_long);
+		{Vs,VSz} ->
+		    {LenBytes,LenSize} = encode_len(VSz,Y,Endian),
+		    {[LenBytes,<<?PAD(EntPad)>>,Vs],LenSize+EntPad+VSz}
+	    end;
+	[?DBUS_STRUCT_BEGIN|Es1] ->
+	    EntPad = ?PAD_SIZE(Y, 8),
+	    {SBin,SLen} = encode_struct(Es1,X,Y+EntPad,Endian),
+	    {[<<?PAD(EntPad)>>,SBin],EntPad+SLen};
+	[?DBUS_DICT_ENTRY_BEGIN|Es] ->
+	    {K,V} = X,
+	    {KSig,Es1} = next_arg(Es),
+	    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
+	    EntPad = ?PAD_SIZE(Y, 8),
+	    {KBin,KLen} = encode(KSig,K,Y+EntPad,Endian),
+	    Y2 = Y+EntPad+KLen,
+	    {VBin,VLen} = encode(VSig,V,Y2,Endian),
+	    {[<<?PAD(EntPad)>>,KBin,VBin], EntPad+KLen+VLen};
+	[?DBUS_VARIANT] ->
+	    {Sig,Val} = X,
+	    {SBin,SLen} = encode([?DBUS_SIGNATURE],efilter(Sig),Y,Endian),
+	    {VBin,VLen} = encode(Sig,Val,Y+SLen,Endian),
+	    {[SBin,VBin], SLen+VLen};
+	[?DBUS_ERLANG] ->
+	    Variant = dbus_erlang:evariant(X),
+	    encode([?DBUS_VARIANT],Variant,Y,Endian)
+    end.
 
-encode_little(Y,[?DBUS_UINT16],X) when is_integer(X) ->
-    P = pad_size(Y, 2),
-    {?UINT(P,little,X,16),Y+P+2};
+encode_byte(X, _Y, _) ->
+    {<<X:8/unsigned-integer>>, 1}.
 
-encode_little(Y,[?DBUS_UINT32],X) when is_integer(X) ->
-    P = pad_size(Y, 4),
-    {?UINT(P,little,X,32),Y+P+4};
+encode_int16(X, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 2),
+    {<<?PAD(Pad),X:16/little-signed-integer>>, 2+Pad};
+encode_int16(X, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 2),
+    {<<?PAD(Pad),X:16/big-signed-integer>>, 2+Pad}.
 
-encode_little(Y,[?DBUS_UINT64],X) when is_integer(X) ->
-    P = pad_size(Y, 8),
-    {?UINT(P,little,X,64),Y+P+8};
+encode_uint16(X, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 2),
+    {<<?PAD(Pad),X:16/little-unsigned-integer>>, 2+Pad};
+encode_uint16(X, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 2),
+    {<<?PAD(Pad),X:16/big-unsigned-integer>>, 2+Pad}.
 
-encode_little(Y,[?DBUS_INT16],X) when is_integer(X) ->
-    P = pad_size(Y, 2),
-    {?INT(P,little,X,16),Y+P+2};
+encode_int32(X, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    {<<?PAD(Pad),X:32/little-signed-integer>>, 4+Pad};
+encode_int32(X, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    {<<?PAD(Pad),X:32/big-signed-integer>>, 4+Pad}.
 
-encode_little(Y,[?DBUS_INT32],X) when is_integer(X) ->
-    P = pad_size(Y, 4),
-    {?INT(P,little,X,32),Y+P+4};
+encode_uint32(X, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    {<<?PAD(Pad),X:32/little-unsigned-integer>>, 4+Pad};
+encode_uint32(X, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    {<<?PAD(Pad),X:32/big-unsigned-integer>>, 4+Pad}.
 
-encode_little(Y,[?DBUS_INT64],X) when is_integer(X) ->
-    P = pad_size(Y, 8),
-    {?INT(P,little,X,64),Y+P+8};
+encode_len(X, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    {<<?PAD(Pad),X:32/little-unsigned-integer>>, 4+Pad};
+encode_len(X, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    {<<?PAD(Pad),X:32/big-unsigned-integer>>, 4+Pad}.
 
-encode_little(Y,[?DBUS_DOUBLE],X) when is_float(X) ->
-    P = pad_size(Y, 8),
-    {?FLOAT(P,little,X,64), Y+P+8};
+encode_uint64(X, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    {<<?PAD(Pad),X:64/little-unsigned-integer>>, 8+Pad};
+encode_uint64(X, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    {<<?PAD(Pad),X:64/big-unsigned-integer>>, 8+Pad}.
 
-encode_little(Y,[?DBUS_STRING],X0) when is_list(X0); is_atom(X0) ->
-    X = if is_atom(X0) -> atom_to_list(X0); true -> X0 end,
-    P = pad_size(Y,4),
-    String = unicode:characters_to_binary(X),
-    Size   = byte_size(String),
-    if Size > ?MAX_STRING_SIZE -> erlang:error(string_too_long);
-       true  -> ok
-    end,
-    {[?UINT(P,little,Size,32), <<String/binary, 0>>],
-     Y+P+4+Size+1};
+encode_int64(X, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    {<<?PAD(Pad),X:64/little-signed-integer>>, 8+Pad};
+encode_int64(X, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    {<<?PAD(Pad),X:64/big-signed-integer>>, 8+Pad}.
 
-encode_little(Y,[?DBUS_OBJPATH],X) when is_list(X) ->
-    case is_valid_objpath(X) of
-	false -> erlang:error(not_an_objpath);
-	true -> ok
-    end,
-    P = pad_size(Y,4),
-    String = unicode:characters_to_binary(X),
-    Size   = byte_size(String),
-    if Size > ?MAX_OBJPATH_SIZE -> erlang:error(objpath_too_long);
-       true  -> ok
-    end,
-    {[?UINT(P,little,Size,32), <<String/binary, 0>>],
-     Y+P+4+Size+1};
+encode_double(X, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    {<<?PAD(Pad),X:64/little-float>>, 8+Pad};
+encode_double(X, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    {<<?PAD(Pad),X:64/big-float>>, 8+Pad}.
 
-encode_little(Y,[?DBUS_SIGNATURE],X) when is_list(X) -> 
-    String = unicode:characters_to_binary(X),
-    Size   = byte_size(String),
-    if Size > ?MAX_SIGNATURE_SIZE -> erlang:error(signature_too_long);
-       true  -> ok
-    end,
-    {[<<Size:8>>,<<String/binary, 0>>], Y+1+Size+1};
+encode_string(X, Y, MaxLen, Endian) ->
+    X1 = if is_atom(X) -> atom_to_list(X); 
+	    is_list(X) -> X 
+	 end,
+    Bytes = unicode:characters_to_binary(X1),
+    Len   = byte_size(Bytes),
+    if Len > MaxLen ->
+	    erlang:error(string_too_long);
+       MaxLen =:= 255 ->
+	    {[Len,Bytes,0],1+Len+1};
+       true ->
+	    {LenBytes,LenSize} = encode_len(Len,Y,Endian),
+	    {[LenBytes,Bytes,0],LenSize+Len+1}
+    end.
 
-%% special case for binaries = "ay"
-encode_little(Y,[?DBUS_ARRAY,?DBUS_BYTE], X) when is_binary(X) ->
-    YSz = byte_size(X),
-    if YSz > ?MAX_ARRAY_SIZE -> erlang:error(array_too_long);
-       true -> ok
-    end,
-    {Vl,Y1} = encode_little(Y,[?DBUS_UINT32],YSz),
-    {[Vl,X],Y1+YSz};
-%% special case for binaries = "ay"
-encode_little(Y,S=[?DBUS_ARRAY,?DBUS_BYTE], X) when is_list(X) ->
-    encode_little(Y,S,iolist_to_binary(X));
+encode_dict(KSig, VSig, Y, Endian, Iter) ->
+    encode_dict_(KSig, VSig, Y, Endian, Iter, 0, []).
 
-encode_little(Y,[?DBUS_ARRAY,?DBUS_DICT_ENTRY_BEGIN|Es], X) when is_map(X) ->
-    {KSig,Es1} = next_arg(Es),
-    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
-    Iter = maps:iterator(X),
-    {Vs,YSz} = encode_dict_elements_little(0, KSig, VSig, Iter),
-    if YSz > ?MAX_ARRAY_SIZE -> erlang:error(dict_too_large); 
-       true -> ok
-    end,
-    {Vl,Y1} = encode_little(Y,[?DBUS_UINT32],YSz),
-    P0 = pad_size(Y1,8),
-    {[Vl,<<?PAD(P0)>>|Vs],Y1+P0+YSz};
-
-encode_little(Y,[?DBUS_ARRAY|Es], X) when is_list(X) ->
-    {ESig,""} = next_arg(Es),  %% element type
-    {Vs,YSz} = encode_array_elements_little(0,ESig,X),
-    if YSz > ?MAX_ARRAY_SIZE -> erlang:error(array_too_long);
-       true -> ok
-    end,
-    {Vl,Y1} = encode_little(Y,[?DBUS_UINT32],YSz),
-    A = alignment(ESig),
-    P0 = pad_size(Y1,A),
-    {[Vl,<<?PAD(P0)>>|Vs],Y1+P0+YSz};
-
-encode_little(Y,[?DBUS_STRUCT_BEGIN|Es1], X) when is_tuple(X) ->
-    P0 = pad_size(Y, 8),
-    %% FIXME: probably record if correct signature?
-    encode_struct_little(Y+P0,Es1,1,X,[<<?PAD(P0)>>]);
-
-encode_little(Y,[?DBUS_DICT_ENTRY_BEGIN|Es], {K,V}) ->
-    P0 = pad_size(Y, 8),
-    {KSig,Es1} = next_arg(Es),
-    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
-    {KBin,Y1} = encode_little(Y+P0,KSig,K),
-    {VBin,Y2} = encode_little(Y1,VSig,V),
-    {[<<?PAD(P0)>>,KBin,VBin], Y2};
-
-encode_little(Y,[?DBUS_VARIANT], {Signature,Value}) ->
-    %% Fixme: handle variant depth !
-    {SBin,Y1} = encode_little(Y,[?DBUS_SIGNATURE],efilter(Signature)),
-    {VBin,Y2} = encode_little(Y1,Signature,Value),
-    {[SBin,VBin], Y2};
-
-encode_little(Y,[?DBUS_ERLANG], Term) ->
-%%    Bin = term_to_binary(Term),
-%%    encode_little(Y,[?DBUS_ARRAY,?DBUS_BYTE], Bin).
-    Variant = dbus_erlang:evariant(Term),
-    encode_little(Y,[?DBUS_VARIANT],Variant).
-
-encode_dict_elements_little(Y, KSig, VSig, Iter) ->
-    encode_dict_elements_little_(Y, KSig, VSig, Iter, []).
-
-encode_dict_elements_little_(Y, KSig, VSig, Iter, Acc) ->
+encode_dict_(KSig, VSig, Y, Endian, Iter, Len, Acc) ->
     case maps:next(Iter) of
 	{K,V,Iter1} ->
-	    P0 = pad_size(Y, 8),
-	    {KBin,Y1} = encode_little(Y+P0,KSig,K),
-	    {VBin,Y2} = encode_little(Y1,VSig,V),
-	    encode_dict_elements_little_(Y2, KSig, VSig, Iter1,
-					[[<<?PAD(P0)>>,KBin,VBin]|Acc]);
+	    EntPad = ?PAD_SIZE(Y,8),
+	    {KBin,KLen} = encode(KSig,K,Y+EntPad,Endian),
+	    {VBin,VLen} = encode(VSig,V,Y+EntPad+KLen,Endian),
+	    DLen = EntPad+KLen+VLen,
+	    encode_dict_(KSig, VSig, Y+DLen, Endian, Iter1, Len+DLen,
+			 [[<<?PAD(EntPad)>>,KBin,VBin]|Acc]);
 	none ->
-	    {lists:reverse(Acc), Y}
+	    {lists:reverse(Acc), Len}
     end.
 
+encode_array(Sig,Xs,Y,Endian) ->
+    encode_array_(Sig,Xs,Y,Endian,0,[]).
 
-encode_array_elements_little(Y,Es,Xs) ->
-    encode_array_elements_little(Y,Es,Xs,[]).
+encode_array_(Sig,[X|Xs],Y,Endian,Len,Acc) ->
+    {EBin,ELen} = encode(Sig,X,Y,Endian),
+    encode_array_(Sig, Xs, Y+ELen,Endian,Len+ELen,
+		  [EBin|Acc]);
+encode_array_(_Sig,[],_Y,_Endian,Len,Acc) ->
+    {reverse(Acc),Len}.
 
-encode_array_elements_little(Y,Es,[X|Xs],Acc) ->
-    {V,Y1} = encode_little(Y,Es,X),
-    encode_array_elements_little(Y1,Es,Xs,[V|Acc]);
-encode_array_elements_little(Y,_Es,[],Acc) ->
-    {reverse(Acc),Y}.
+encode_struct(SigList,X,Y,Endian) ->
+    encode_struct_(SigList,X,Y,Endian,1,0,[]).
 
-encode_struct_little(Y,Es,I,X,Acc) ->
-    case next_arg(Es) of
+encode_struct_(SigList,X,Y,Endian,I,Len,Acc) ->
+    case next_arg(SigList) of
 	{")",""}   -> 
-	    {reverse(Acc),Y};
-	{Sig,Es1} ->
-	    {Data,Y1} = encode_little(Y,Sig,element(I,X)),
-	    encode_struct_little(Y1,Es1,I+1,X,[Data|Acc])
+	    {reverse(Acc),Len};
+	{Sig,SigList1} ->
+	    {FBin,FLen} = encode(Sig,element(I,X),Y,Endian),
+	    encode_struct_(SigList1,X,Y+FLen,Endian,I+1,Len+FLen,[FBin|Acc])
     end.
 
+encode_seq(SigList,Xs,Y,Endian) ->
+    encode_seq_(SigList,Xs,Y,Endian,0,[]).
 
-%% encode big endian data
-encode_big(Y,[?DBUS_BYTE], X) when is_integer(X) ->
-    {<<X:8>>,Y+1};
-encode_big(Y,[?DBUS_BOOLEAN],true) ->
-    P = pad_size(Y, 4),
-    {?UINT(P,big,1,32),Y+P+4};
-    
-encode_big(Y,[?DBUS_BOOLEAN],false) -> 
-    P = pad_size(Y, 4),
-    {?UINT(P,big,0,32),Y+P+4};
-
-encode_big(Y,[?DBUS_UINT16],X) when is_integer(X) ->
-    P = pad_size(Y, 2),
-    {?UINT(P,big,X,16),Y+P+2};
-
-encode_big(Y,[?DBUS_UINT32],X) when is_integer(X) ->
-    P = pad_size(Y, 4),
-    {?UINT(P,big,X,32),Y+P+4};
-
-encode_big(Y,[?DBUS_UINT64],X) when is_integer(X) ->
-    P = pad_size(Y, 8),
-    {?UINT(P,big,X,64),Y+P+8};
-
-encode_big(Y,[?DBUS_INT16],X) when is_integer(X) ->
-    P = pad_size(Y, 2),
-    {?INT(P,big,X,16),Y+P+2};
-
-encode_big(Y,[?DBUS_INT32],X) when is_integer(X) ->
-    P = pad_size(Y, 4),
-    {?INT(P,big,X,32),Y+P+4};
-
-encode_big(Y,[?DBUS_INT64],X) when is_integer(X) ->
-    P = pad_size(Y, 8),
-    {?INT(P,big,X,64),Y+P+8};
-
-encode_big(Y,[?DBUS_DOUBLE],X) when is_float(X) ->
-    P = pad_size(Y, 8),
-    {?FLOAT(P,big,X,64), Y+P+8};
-
-encode_big(Y,[?DBUS_STRING],X0) when is_list(X0); is_atom(X0) ->
-    X = if is_atom(X0) -> atom_to_list(X0); true -> X0 end,
-    P = pad_size(Y,4),
-    String = unicode:characters_to_binary(X),
-    Size   = byte_size(String),
-    if Size > ?MAX_STRING_SIZE -> erlang:error(string_too_long);
-       true  -> ok
-    end,
-    {[?UINT(P,big,Size,32), <<String/binary, 0>>],
-     Y+P+4+Size+1};
-
-encode_big(Y,[?DBUS_OBJPATH],X) when is_list(X) ->
-    case is_valid_objpath(X) of
-	false -> erlang:error(not_an_objpath);
-	true -> ok
-    end,
-    P = pad_size(Y,4),
-    String = unicode:characters_to_binary(X),
-    Size   = byte_size(String),
-    if Size > ?MAX_OBJPATH_SIZE -> erlang:error(objpath_too_long);
-       true  -> ok
-    end,
-    {[?UINT(P,big,Size,32), <<String/binary, 0>>],
-     Y+P+4+Size+1};
-
-encode_big(Y,[?DBUS_SIGNATURE],X) when is_list(X) -> 
-    String = unicode:characters_to_binary(X),
-    Size   = byte_size(String),
-    if Size > ?MAX_SIGNATURE_SIZE -> erlang:error(signature_too_long);
-       true  -> ok
-    end,
-    {[<<Size:8>>,<<String/binary, 0>>], Y+1+Size+1};
-%% special case for binaries = "ay"
-encode_big(Y,[?DBUS_ARRAY,?DBUS_BYTE], X) when is_binary(X) ->
-    YSz = byte_size(X),
-    if YSz > ?MAX_ARRAY_SIZE -> erlang:error(array_too_long);
-       true -> ok
-    end,
-    {Vl,Y1} = encode_big(Y,[?DBUS_UINT32],YSz),
-    {[Vl,X],Y1+YSz};
-%% special case for binaries = "ay"
-encode_big(Y,S=[?DBUS_ARRAY,?DBUS_BYTE], X) when is_list(X) ->
-    encode_big(Y,S,iolist_to_binary(X));
-
-encode_big(Y,[?DBUS_ARRAY,?DBUS_DICT_ENTRY_BEGIN|Es], X) when is_map(X) ->
-    {KSig,Es1} = next_arg(Es),
-    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
-    Iter = maps:iterator(X),
-    {Vs,YSz} = encode_dict_elements_big(0, KSig, VSig, Iter),
-    if YSz > ?MAX_ARRAY_SIZE -> erlang:error(dict_too_large); 
-       true -> ok
-    end,
-    {Vl,Y1} = encode_big(Y,[?DBUS_UINT32],YSz),
-    P0 = pad_size(Y1,8),
-    {[Vl,<<?PAD(P0)>>|Vs],Y1+P0+YSz};
-
-encode_big(Y,[?DBUS_ARRAY|Es], X) when is_list(X) ->
-    {ESig,""} = next_arg(Es),  %% element type
-    {Vs,YSz} = encode_array_elements_big(0,ESig,X),
-    if YSz > ?MAX_ARRAY_SIZE -> erlang:error(array_too_long);
-       true -> ok
-    end,
-    {Vl,Y1} = encode_big(Y,[?DBUS_UINT32],YSz),
-    A = alignment(ESig),
-    P = pad_size(Y1,A),
-    {[Vl,<<?PAD(P)>>|Vs],Y1+P+YSz};
-
-encode_big(Y,[?DBUS_STRUCT_BEGIN|Es1], X) when is_tuple(X) ->
-    P = pad_size(Y, 8),
-    %% FIXME: probably record if correct signature?
-    encode_struct_big(Y+P,Es1,1,X,[<<?PAD(P)>>]);
-
-encode_big(Y,[?DBUS_DICT_ENTRY_BEGIN|Es], {K,V}) ->
-    P = pad_size(Y, 8),
-    {KSig,Es1} = next_arg(Es),
-    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
-    {KBin,Y1} = encode_big(Y+P,KSig,K),
-    {VBin,Y2} = encode_big(Y1,VSig,V),
-    {[<<?PAD(P)>>,KBin,VBin], Y2};
-
-encode_big(Y,[?DBUS_VARIANT], {Signature,Value}) ->
-    %% Fixme: handle variant depth !
-    {SBin,Y1} = encode_big(Y,[?DBUS_SIGNATURE],efilter(Signature)),
-    {VBin,Y2} = encode_big(Y1,Signature,Value),
-    {[SBin,VBin], Y2};
-
-encode_big(Y,[?DBUS_ERLANG], Term) ->
-%%    Bin = term_to_binary(Term),
-%%    encode_big(Y,[?DBUS_ARRAY,?DBUS_BYTE], Bin).
-    Variant = dbus_erlang:evariant(Term),
-    encode_big(Y,[?DBUS_VARIANT],Variant).
-
-encode_dict_elements_big(Y, KSig, VSig, Iter) ->
-    encode_dict_elements_big_(Y, KSig, VSig, Iter, []).
-
-encode_dict_elements_big_(Y, KSig, VSig, Iter, Acc) ->
-    case maps:next(Iter) of
-	{K,V,Iter1} ->
-	    P0 = pad_size(Y, 8),
-	    {KBin,Y1} = encode_big(Y+P0,KSig,K),
-	    {VBin,Y2} = encode_big(Y1,VSig,V),
-	    encode_dict_elements_big_(Y2, KSig, VSig, Iter1,
-				      [[<<?PAD(P0)>>,KBin,VBin]|Acc]);
-	none ->
-	    {lists:reverse(Acc), Y}
-    end.
-
-encode_array_elements_big(Y,Es,Xs) ->
-    encode_array_elements_big(Y,Es,Xs,[]).
-
-encode_array_elements_big(Y,Es,[X|Xs],Acc) ->
-    {V,Y1} = encode_big(Y,Es,X),
-    encode_array_elements_big(Y1,Es,Xs,[V|Acc]);
-encode_array_elements_big(Y,_Es,[],Acc) ->
-    {reverse(Acc),Y}.
-
-
-encode_struct_big(Y,Es,I,X,Acc) ->
-    case next_arg(Es) of
-	{")",""}   -> 
-	    {reverse(Acc),Y};
-	{Sig,Es1} ->
-	    {Data,Y1} = encode_big(Y,Sig,element(I,X)),
-	    encode_struct_big(Y1,Es1,I+1,X,[Data|Acc])
-    end.
+encode_seq_("",[],_Y,_Endian,Len,Acc) ->
+    {reverse(Acc),Len};    
+encode_seq_(SigList,[X|Xs],Y,Endian,Len,Acc) ->
+    {Sig,SigList1} = next_arg(SigList),
+    {FBin,FLen} = encode(Sig,X,Y,Endian),
+    encode_seq_(SigList1,Xs,Y+FLen,Endian,Len+FLen,[FBin|Acc]).
 
 efilter([?DBUS_ERLANG|Cs]) ->
     [?DBUS_VARIANT|efilter(Cs)];
@@ -502,329 +356,258 @@ efilter([]) ->
 %% @doc
 %%   Decode a signature
 %% @end
-decode_args(little, Y, Es, Bin) ->
-    decode_args_little(Y, Es, Bin);
-decode_args(big, Y, Es, Bin) ->
-    decode_args_big(Y, Es, Bin).
 
+decode_args(Signature, Bin) ->
+    decode_args(Signature, Bin, 0, erlang:system_info(endian)).
 
-decode_args_little(Y, [], Bin0) ->
-    {[],Y,Bin0};
-decode_args_little(Y, Es, Bin0) ->
-    {Sig,Es1} = next_arg(Es),
-    {X,Y1,Bin1} = decode_little(Y, Sig, Bin0),
-    {Xs,Y2,Bin2} = decode_args_little(Y1,Es1,Bin1),
-    {[X|Xs],Y2,Bin2}.
-
-decode_args_big(Y, [], Bin0) ->
-    {[],Y,Bin0};
-decode_args_big(Y, Es, Bin0) ->
-    {Sig,Es1} = next_arg(Es),
-    {X,Y1,Bin1} = decode_big(Y, Sig, Bin0),
-    {Xs,Y2,Bin2} = decode_args_big(Y1,Es1,Bin1),
-    {[X|Xs],Y2,Bin2}.
+decode_args(Signature, Bin, Y, Endian) ->
+    decode_seq(Signature, Bin, Y, Endian).
 
 decode(Signature,Bin) ->
-    decode(erlang:system_info(endian),Signature,Bin).
+    decode(Signature,Bin,0,erlang:system_info(endian)).
 
-decode(Endian,Signature,Bin) ->
-    decode(Endian,0,Signature,Bin).
-    
+decode(Signature,Bin,Endian) ->
+    decode(Signature,Bin,0,Endian).
 
-decode(little, Y, Type, Bin) ->
-    decode_little(Y, Type, Bin);
-decode(big, Y, Type, Bin) ->
-    decode_big(Y, Type, Bin).
+%% consider handle alignment before all entires	  
+decode(Signature,Bin,Y,Endian) ->
+    case Signature of
+	[?DBUS_BYTE] ->
+	    decode_byte(Bin, Y, Endian);
+	[?DBUS_BOOLEAN] ->
+	    case decode_uint32(Bin, Y, Endian) of
+		{1, Len, Bin1} -> {true, Len, Bin1};
+		{0, Len, Bin1} -> {false,Len, Bin1}
+	    end;
+	[?DBUS_UINT16] ->
+	    decode_uint16(Bin, Y, Endian);
+	[?DBUS_UINT32] ->
+	    decode_uint32(Bin, Y, Endian);
+	[?DBUS_UINT64] ->
+	    decode_uint64(Bin, Y, Endian);
+	[?DBUS_INT16] ->
+	    decode_int16(Bin, Y, Endian);
+	[?DBUS_INT32] ->
+	    decode_int32(Bin, Y, Endian);
+	[?DBUS_INT64] ->
+	    decode_int64(Bin, Y, Endian);
+	[?DBUS_DOUBLE] ->
+	    decode_double(Bin, Y, Endian);
+	[?DBUS_STRING] ->
+	    decode_string(Bin, Y, Endian);
+	[?DBUS_OBJPATH] ->
+	    decode_string(Bin, Y, Endian);
+	[?DBUS_SIGNATURE] ->
+	    <<Size:8,Data:Size/binary,0,Bin1/binary>> = Bin,
+	    String = unicode:characters_to_list(Data),
+	    ?TRACE("~w: signature:\"~ts\"\n", [Y, String]),
+	    {String,1+Size+1,Bin1};
 
+	%% special case for binaries = "ay"
+	[?DBUS_ARRAY,?DBUS_BYTE] ->
+	    {Size, SizeLen, Bin1} = decode_len(Bin, Y, Endian),
+	    <<Bytes:Size/binary, Bin2/binary>> = Bin1,
+	    ?TRACE("~w: byte array size=~w, data=~p\n", [Y, Size, Bytes]),
+	    {Bytes,SizeLen+Size,Bin2};
+	%% a{kv}
+	[?DBUS_ARRAY,?DBUS_DICT_ENTRY_BEGIN|Es] ->
+	    {KSig,Es1} = next_arg(Es),
+	    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
+	    {Size, SizeLen, Bin1} = decode_len(Bin, Y, Endian),
+	    ?TRACE("~w: dict of \"~s\"=>\"~s\" size=~w [\n",[Y,KSig,VSig,Size]),
+	    Y1 = Y + SizeLen,
+	    EntPad = ?PAD_SIZE(Y1,8),
+	    <<_:EntPad/binary, Data:Size/binary, Bin2/binary>> = Bin1,
+	    {Elems,ElemsLen} = decode_dict(KSig,VSig,Y1+EntPad,Endian,Data),
+	    ?TRACE("~w: ]\n", [Y1+EntPad+ElemsLen]),
+	    {maps:from_list(Elems),SizeLen+EntPad+ElemsLen, Bin2};
+	%% ax
+	[?DBUS_ARRAY|Es] ->
+	    {ESig,""} = next_arg(Es),  %% element type
+	    {Size, SizeLen, Bin1} = decode_len(Bin, Y, Endian),
+	    ?TRACE("~w: array of ~s size=~w\n", [Y, ESig, Size]),
+	    Y1 = Y+SizeLen,
+	    A  = alignment(ESig),      %% alignment for array
+	    EntPad = ?PAD_SIZE(Y1,A),
+	    ?DBG("align=~w,EntPad:~w, byte_size(Bin1)=~w\n",
+		 [A, EntPad, byte_size(Bin1)]),
+	    <<_:EntPad/binary, Data:Size/binary, Bin2/binary>> = Bin1,
+	    {Elems,ElemsLen} = decode_array(ESig,Data,Y1+EntPad,Endian),
+	    ?TRACE("~w: ]\n", [Y1+EntPad+ElemsLen]),
+	    {Elems,SizeLen+EntPad+ElemsLen,Bin2};
 
-decode_little(Y, [?DBUS_BYTE], Bin) ->
-    case Bin of
-	<<X:8,T/binary>> -> {X,Y+1,T};
-	<<>> -> erlang:error(more_data)
-    end;
-decode_little(Y,[?DBUS_BOOLEAN],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MUINT(P,little,X,32,T) = Bin,
-    {X =/= 0,Y+P+4,T};
-decode_little(Y,[?DBUS_UINT16],Bin) ->
-    P = pad_size(Y,2),
-    ?NEED_SIZE(Bin, 2+P),
-    ?MUINT(P,little,X,16,T) = Bin,
-    {X,Y+P+2,T};
-decode_little(Y,[?DBUS_UINT32],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MUINT(P,little,X,32,T) = Bin,
-    {X,Y+P+4,T};
-decode_little(Y,[?DBUS_UINT64],Bin) ->
-    P = pad_size(Y,8),
-    ?NEED_SIZE(Bin, 8+P),
-    ?MUINT(P,little,X,64,T) = Bin,
-    {X,Y+P+8,T};
-decode_little(Y,[?DBUS_INT16],Bin) ->
-    P = pad_size(Y,2),
-    ?NEED_SIZE(Bin, 2+P),
-    ?MINT(P,little,X,16,T) = Bin,
-    {X,Y+P+2,T};
-decode_little(Y,[?DBUS_INT32],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MINT(P,little,X,32,T) = Bin,
-    {X,Y+P+4,T};
-decode_little(Y,[?DBUS_INT64],Bin) ->
-    P = pad_size(Y,8),
-    ?NEED_SIZE(Bin, 8+P),
-    ?MINT(P,little,X,64,T) = Bin,
-    {X,Y+P+8,T};
-decode_little(Y,[?DBUS_DOUBLE],Bin) ->
-    P = pad_size(Y,8),
-    ?NEED_SIZE(Bin,8+P),
-    ?MFLOAT(P,little,X,64,T) = Bin,
-    {X,Y+P+8,T};
-decode_little(Y,[?DBUS_STRING],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MUINT(P,little,X,32,Bin1) = Bin,
-    ?NEED_SIZE(Bin1,X+1),
-    <<Data:X/binary,0,T/binary>> = Bin1,
-    {unicode:characters_to_list(Data),Y+P+4+X+1,T};
-decode_little(Y,[?DBUS_OBJPATH],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MUINT(P,little,X,32,Bin1) = Bin,
-    ?NEED_SIZE(Bin1,X+1),
-    <<Data:X/binary,0,T/binary>> = Bin1,
-    {unicode:characters_to_list(Data),Y+P+4+X+1,T};
-decode_little(Y,[?DBUS_SIGNATURE],Bin) ->
-    ?NEED_SIZE(Bin, 1),
-    <<X:8,Bin1/binary>> = Bin,
-    ?NEED_SIZE(Bin1,X+1),
-    <<Data:X/binary,0,T/binary>> = Bin1,
-    {unicode:characters_to_list(Data),Y+1+X+1,T};
-%% special case for binaries = "ay"
-decode_little(Y,[?DBUS_ARRAY,?DBUS_BYTE], Bin) ->
-    {Size,Y1,Bin1} = decode_little(Y,[?DBUS_UINT32],Bin),
-    ?NEED_SIZE(Bin1, Size),
-    <<Bin2:Size/binary,T/binary>> = Bin1,
-    {Bin2,Y1+Size,T};
+	[?DBUS_STRUCT_BEGIN|Es] ->
+	    EntPad = ?PAD_SIZE(Y, 8),
+	    <<?SKIP(EntPad), Bin1/binary>> = Bin,
+	    ?TRACE("~w: struct [\n", [Y]),
+	    {Elems,ElemsLen,Bin2} = decode_struct(Es,Bin1,Y+EntPad,Endian),
+	    ?TRACE("~w: ]\n", [Y+ElemsLen]),
+	    {Elems,EntPad+ElemsLen,Bin2};
 
-decode_little(Y,[?DBUS_ARRAY,?DBUS_DICT_ENTRY_BEGIN|Es],Bin) ->
-    {KSig,Es1} = next_arg(Es),
-    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
-    {Size,Y1,Bin1} = decode_little(Y,[?DBUS_UINT32],Bin),
-    P0 = pad_size(Y1,8),
-    ?NEED_SIZE(Bin1, P0+Size),
-    <<?PAD(P0),Bin2:Size/binary,T/binary>> = Bin1,
-    {Elems,_} = decode_dict_elements_little(0,KSig,VSig,Bin2),
-    {maps:from_list(Elems),Y1+P0+Size,T};
+	[?DBUS_DICT_ENTRY_BEGIN|Es] ->
+	    EntPad = ?PAD_SIZE(Y, 8),
+	    <<_:EntPad/binary, Bin1/binary>> = Bin,
+	    {KSig,Es1} = next_arg(Es),
+	    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
+	    ?TRACE("~w: entry ~s, ~s [\n", [Y,KSig,VSig]),
+	    {K,KLen,Bin2} = decode(KSig,Bin1,Y+EntPad,Endian),
+	    {V,VLen,Bin3} = decode(VSig,Bin2,Y+EntPad+KLen,Endian),
+	    ?TRACE("~w: ]\n", [Y+KLen+VLen]),
+	    {{K,V},EntPad+KLen+VLen,Bin3};
 
-decode_little(Y,[?DBUS_ARRAY|Es], Bin) ->
-    {ESig,""} = next_arg(Es),  %% element type
-    {Size,Y1,Bin1} = decode_little(Y,[?DBUS_UINT32],Bin),
-    A = alignment(ESig),
-    P0 = pad_size(Y1,A),
-    ?NEED_SIZE(Bin1, P0+Size),
-    <<?PAD(P0),Bin2:Size/binary,T/binary>> = Bin1,
-    {Elems,_} = decode_array_elements_little(0,ESig,Bin2),
-    {Elems,Y1+P0+Size,T};
+	[?DBUS_VARIANT] ->
+	    ?TRACE("~w: variant [\n", [Y]),
+	    {Sig,SLen,Bin1} = decode([?DBUS_SIGNATURE],Bin,Y,Endian),
+	    {Val,VLen,Bin2} = decode(Sig,Bin1,Y+SLen,Endian),
+	    ?TRACE("~w: ]\n", [Y+SLen+VLen]),
+	    {{Sig,Val},SLen+VLen,Bin2};
 
-decode_little(Y,[?DBUS_STRUCT_BEGIN|Es], Bin) ->
-    P0 = pad_size(Y, 8),
-    <<?PAD(P0), Bin1/binary>> = Bin,
-    decode_struct_little(Y+P0,Es,Bin1,[]);
-decode_little(Y,[?DBUS_DICT_ENTRY_BEGIN|Es],Bin) ->
-    P0 = pad_size(Y, 8),
-    <<?PAD(P0), Bin1/binary>> = Bin,
-    {KSig,Es1} = next_arg(Es),
-    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
-    {K,Y1,Bin2} = decode_little(Y+P0,KSig,Bin1),
-    {V,Y2,Bin3} = decode_little(Y1,VSig,Bin2),
-    {{K,V},Y2,Bin3};
-decode_little(Y,[?DBUS_VARIANT],Bin) ->
-    {Signature,Y1,Bin1} = decode_little(Y,[?DBUS_SIGNATURE],Bin),
-    {Value,Y2,Bin2} = decode_little(Y1,Signature,Bin1),
-    {Value,Y2,Bin2};
-decode_little(Y,[?DBUS_ERLANG],Bin) ->
-%%    {Value,Y2,Bin2} = decode_little(Y, [?DBUS_ARRAY,?DBUS_BYTE], Bin),
-%%    {binary_to_term(Value), Y2, Bin2}.
-    decode_little(Y, [?DBUS_VARIANT], Bin).
-
-decode_dict_elements_little(Y, KSig, VSig, Bin) ->    
-    decode_dict_elements_little_(Y, KSig, VSig, Bin, []).
-
-decode_dict_elements_little_(Y, _KSig, _VSig, <<>>, Acc) ->
-    {Acc, Y};  %% no need to reverse a dict/map!
-decode_dict_elements_little_(Y, KSig, VSig, Bin, Acc) ->
-    P0 = pad_size(Y, 8),
-    <<?PAD(P0), Bin1/binary>> = Bin,
-    {K,Y1,Bin2} = decode_little(Y+P0,KSig,Bin1),
-    {V,Y2,Bin3} = decode_little(Y1,VSig,Bin2),
-    decode_dict_elements_little_(Y2, KSig, VSig, Bin3, [{K,V}|Acc]).
-
-decode_array_elements_little(Y,Es,Bin) ->
-    decode_array_elements_little(Y,Es,Bin,[]).
-
-decode_array_elements_little(Y,_Es, <<>>, Acc) ->
-    {reverse(Acc),Y};
-decode_array_elements_little(Y, Es, Bin, Acc) ->
-    {X,Y1,Bin1} = decode_little(Y, Es, Bin),
-    decode_array_elements_little(Y1,Es,Bin1,[X|Acc]).
-    
-decode_struct_little(Y,Es,Bin0,Acc) ->
-    case next_arg(Es) of
-	{")",""} ->
-	    {list_to_tuple(reverse(Acc)),Y,Bin0};
-	{Sig,Es1} ->
-	    {Elem,Y1,Bin1} = decode_little(Y,Sig,Bin0),
-	    decode_struct_little(Y1,Es1,Bin1,[Elem|Acc])
+	[?DBUS_ERLANG] ->
+	    decode([?DBUS_VARIANT], Bin, Y, Endian)
     end.
-%%
-%% Decode big-endian data
-%%
 
-decode_big(Y, [?DBUS_BYTE], Bin) ->
-    case Bin of
-	<<X:8,T/binary>> -> {X,Y+1,T};
-	<<>> -> erlang:error(more_data)
-    end;
-decode_big(Y,[?DBUS_BOOLEAN],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MUINT(P,big,X,32,T) = Bin,
-    {X =/= 0,Y+P+4,T};
-decode_big(Y,[?DBUS_UINT16],Bin) ->
-    P = pad_size(Y,2),
-    ?NEED_SIZE(Bin, 2+P),
-    ?MUINT(P,big,X,16,T) = Bin,
-    {X,Y+P+2,T};
-decode_big(Y,[?DBUS_UINT32],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MUINT(P,big,X,32,T) = Bin,
-    {X,Y+P+4,T};
-decode_big(Y,[?DBUS_UINT64],Bin) ->
-    P = pad_size(Y,8),
-    ?NEED_SIZE(Bin, 8+P),
-    ?MUINT(P,big,X,64,T) = Bin,
-    {X,Y+P+8,T};
-decode_big(Y,[?DBUS_INT16],Bin) ->
-    P = pad_size(Y,2),
-    ?NEED_SIZE(Bin, 2+P),
-    ?MINT(P,big,X,16,T) = Bin,
-    {X,Y+P+2,T};
-decode_big(Y,[?DBUS_INT32],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MINT(P,big,X,32,T) = Bin,
-    {X,Y+P+4,T};
-decode_big(Y,[?DBUS_INT64],Bin) ->
-    P = pad_size(Y,8),
-    ?NEED_SIZE(Bin, 8+P),
-    ?MINT(P,big,X,64,T) = Bin,
-    {X,Y+P+8,T};
-decode_big(Y,[?DBUS_DOUBLE],Bin) ->
-    P = pad_size(Y,8),
-    ?NEED_SIZE(Bin,8+P),
-    ?MFLOAT(P,big,X,64,T) = Bin,
-    {X,Y+P+8,T};
-decode_big(Y,[?DBUS_STRING],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MUINT(P,big,X,32,Bin1) = Bin,
-    ?NEED_SIZE(Bin1,X+1),
-    <<Data:X/binary,0,T/binary>> = Bin1,
-    {unicode:characters_to_list(Data),Y+P+4+X+1,T};
-decode_big(Y,[?DBUS_OBJPATH],Bin) ->
-    P = pad_size(Y,4),
-    ?NEED_SIZE(Bin, 4+P),
-    ?MUINT(P,big,X,32,Bin1) = Bin,
-    ?NEED_SIZE(Bin1,X+1),
-    <<Data:X/binary,0,T/binary>> = Bin1,
-    {unicode:characters_to_list(Data),Y+P+4+X+1,T};
-decode_big(Y,[?DBUS_SIGNATURE],Bin) ->
-    ?NEED_SIZE(Bin, 1),
-    <<X:8,Bin1/binary>> = Bin,
-    ?NEED_SIZE(Bin1,X+1),
-    <<Data:X/binary,0,T/binary>> = Bin1,
-    {unicode:characters_to_list(Data),Y+1+X+1,T};
-%% special case for binaries = "ay"
-decode_big(Y,[?DBUS_ARRAY,?DBUS_BYTE], Bin) ->
-    {Size,Y1,Bin1} = decode_big(Y,[?DBUS_UINT32],Bin),
-    ?NEED_SIZE(Bin1, Size),
-    <<Bin2:Size/binary,T/binary>> = Bin1,
-    {Bin2,Y1+Size,T};
+decode_byte(<<X:8, Bin1/binary>>, _Y, _Endian) ->
+    ?TRACE("~w: byte:~w\n", [_Y, X]),
+    {X, 1, Bin1}.
 
-decode_big(Y,[?DBUS_ARRAY,?DBUS_DICT_ENTRY_BEGIN|Es],Bin) ->
-    {KSig,Es1} = next_arg(Es),
-    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
-    {Size,Y1,Bin1} = decode_big(Y,[?DBUS_UINT32],Bin),
-    P0 = pad_size(Y1,8),
-    ?NEED_SIZE(Bin1, P0+Size),
-    <<?PAD(P0),Bin2:Size/binary,T/binary>> = Bin1,
-    {Elems,_} = decode_dict_elements_big(0,KSig,VSig,Bin2),
-    {maps:from_list(Elems),Y1+P0+Size,T};
+decode_int16(Bin, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 2),
+    <<?SKIP(Pad),X:16/little-signed-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: int16:~w\n", [Y, X]),
+    {X, 2+Pad, Bin1};
+decode_int16(Bin, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 2),
+    <<?SKIP(Pad),X:16/big-signed-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: int16:~w\n", [Y, X]),
+    {X, 2+Pad, Bin1}.
 
-decode_big(Y,[?DBUS_ARRAY|Es], Bin) ->
-    {ESig,""} = next_arg(Es),  %% element type
-    {Size,Y1,Bin1} = decode_big(Y,[?DBUS_UINT32],Bin),
-    A = alignment(ESig),
-    P0 = pad_size(Y1,A),
-    ?NEED_SIZE(Bin1, P0+Size),
-    <<?PAD(P0),Bin2:Size/binary,T/binary>> = Bin1,
-    {Elems,_} = decode_array_elements_big(0,ESig,Bin2),
-    {Elems,Y1+P0+Size,T};
-decode_big(Y,[?DBUS_STRUCT_BEGIN|Es], Bin) ->
-    P0 = pad_size(Y, 8),
-    <<?PAD(P0), Bin1/binary>> = Bin,
-    decode_struct_big(Y+P0,Es,Bin1,[]);
-decode_big(Y,[?DBUS_DICT_ENTRY_BEGIN|Es],Bin) ->
-    P0 = pad_size(Y, 8),
-    <<?PAD(P0), Bin1/binary>> = Bin,
-    {KSig,Es1} = next_arg(Es),
-    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
-    {K,Y1,Bin2} = decode_big(Y+P0,KSig,Bin1),
-    {V,Y2,Bin3} = decode_big(Y1,VSig,Bin2),
-    {{K,V},Y2,Bin3};
-decode_big(Y,[?DBUS_VARIANT],Bin) ->
-    {Signature,Y1,Bin1} = decode_big(Y,[?DBUS_SIGNATURE],Bin),
-    {Value,Y2,Bin2} = decode_big(Y1,Signature,Bin1),
-    {Value,Y2,Bin2};
-decode_big(Y,[?DBUS_ERLANG],Bin) ->
-%%    {Value,Y2,Bin2} = decode_big(Y, [?DBUS_ARRAY,?DBUS_BYTE], Bin),
-%%    {binary_to_term(Value), Y2, Bin2}.
-    decode_big(Y, [?DBUS_VARIANT], Bin).
+decode_uint16(Bin, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 2),
+    <<?SKIP(Pad), X:16/little-unsigned-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: uint16:~w\n", [Y, X]),
+    {X, 2+Pad, Bin1};
+decode_uint16(Bin, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 2),
+    <<?SKIP(Pad), X:16/big-unsigned-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: uint16:~w\n", [Y, X]),
+    {X, 2+Pad, Bin1}.
 
+decode_int32(Bin, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    <<?SKIP(Pad),X:32/little-signed-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: int32:~w\n", [Y, X]),
+    {X, 4+Pad, Bin1};
+decode_int32(Bin, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    <<?SKIP(Pad),X:32/big-signed-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: int32:~w\n", [Y, X]),
+    {X, 4+Pad, Bin1}.
 
-decode_dict_elements_big(Y, KSig, VSig, Bin) ->    
-    decode_dict_elements_big_(Y, KSig, VSig, Bin, []).
+decode_uint32(Bin, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    <<?SKIP(Pad),X:32/little-unsigned-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: uint32:~w\n", [Y, X]),
+    {X, 4+Pad, Bin1};
+decode_uint32(Bin, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    <<?SKIP(Pad),X:32/big-unsigned-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: uint32:~w\n", [Y, X]),
+    {X, 4+Pad, Bin1}.
 
-decode_dict_elements_big_(Y, _KSig, _VSig, <<>>, Acc) ->
-    {Acc, Y};  %% no need to reverse a dict/map!
-decode_dict_elements_big_(Y, KSig, VSig, Bin, Acc) ->
-    P0 = pad_size(Y, 8),
-    <<?PAD(P0), Bin1/binary>> = Bin,
-    {K,Y1,Bin2} = decode_big(Y+P0,KSig,Bin1),
-    {V,Y2,Bin3} = decode_big(Y1,VSig,Bin2),
-    decode_dict_elements_big_(Y2, KSig, VSig, Bin3, [{K,V}|Acc]).
+decode_len(Bin, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    <<?SKIP(Pad),X:32/little-unsigned-integer,Bin1/binary>> = Bin,
+    {X, 4+Pad, Bin1};
+decode_len(Bin, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 4),
+    <<?SKIP(Pad),X:32/big-unsigned-integer,Bin1/binary>> = Bin,
+    {X, 4+Pad, Bin1}.
 
-decode_array_elements_big(Y,Es,Bin) ->
-    decode_array_elements_big(Y,Es,Bin,[]).
+decode_int64(Bin, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    <<?SKIP(Pad),X:64/little-signed-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: int64:~w\n", [Y, X]),
+    {X, 8+Pad, Bin1};
+decode_int64(Bin, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    <<?SKIP(Pad),X:64/big-signed-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: int64:~w\n", [Y, X]),
+    {X, 8+Pad, Bin1}.
 
-decode_array_elements_big(Y,_Es, <<>>, Acc) ->
-    {reverse(Acc),Y};
-decode_array_elements_big(Y, Es, Bin, Acc) ->
-    {X,Y1,Bin1} = decode_big(Y, Es, Bin),
-    decode_array_elements_big(Y1,Es,Bin1,[X|Acc]).
+decode_uint64(Bin, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    <<?SKIP(Pad),X:64/little-unsigned-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: uint64:~w\n", [Y, X]),
+    {X, 8+Pad, Bin1};
+decode_uint64(Bin, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    <<?SKIP(Pad),X:64/big-unsigned-integer,Bin1/binary>> = Bin,
+    ?TRACE("~w: uint64:~w\n", [Y, X]),
+    {X, 8+Pad, Bin1}.
 
-decode_struct_big(Y,Es,Bin0,Acc) ->
-    case next_arg(Es) of
+decode_double(Bin, Y, little) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    <<?SKIP(Pad),X:64/little-float,Bin1/binary>> = Bin,
+    ?TRACE("~w: double:~f\n", [Y, X]),
+    {X, 8+Pad, Bin1};
+decode_double(Bin, Y, big) ->
+    Pad = ?PAD_SIZE(Y, 8),
+    <<?SKIP(Pad),X:64/big-float,Bin1/binary>> = Bin,
+    ?TRACE("~w: double:~f\n", [Y, X]),
+    {X, 8+Pad, Bin1}.
+
+decode_string(Bin, Y, Endian) ->
+    {Size, LenSize, Bin1} = decode_len(Bin, Y, Endian),
+    <<Data:Size/binary,0,Bin2/binary>> = Bin1,
+    String = unicode:characters_to_list(Data),
+    ?TRACE("~w: string:\"~ts\"\n", [Y, String]),
+    {String,LenSize+Size+1,Bin2}.
+
+decode_dict(KSig, VSig, Y, Endian, Bin) ->
+    decode_dict_(KSig, VSig, Y, Endian, Bin, 0, []).
+
+decode_dict_(_KSig, _VSig, _Y, _Endian,  <<>>, Len, Acc) ->
+    {Acc, Len};
+decode_dict_(KSig, VSig, Y, Endian, Bin, Len, Acc) ->
+    EntPad = ?PAD_SIZE(Y,8),
+    <<_:EntPad/binary, Bin0/binary>> = Bin,
+    {K,KLen,Bin1} = decode(KSig,Bin0,Y+EntPad,Endian),
+    {V,VLen,Bin2} = decode(VSig,Bin1,Y+EntPad+KLen,Endian),
+    DLen = EntPad+KLen+VLen,
+    decode_dict_(KSig,VSig,Y+DLen,Endian,Bin2,Len+DLen,[{K,V}|Acc]).
+
+decode_array(Sig,Bin,Y,Endian) ->
+    decode_array_(Sig,Bin,Y,Endian,0,[]).
+
+decode_array_(_Sig,<<>>,_Y,_Endian,Len,Acc) ->
+    {reverse(Acc),Len};
+decode_array_(Sig,Bin,Y,Endian,Len,Acc) ->
+    {X,XLen,Bin2} = decode(Sig,Bin,Y,Endian),
+    decode_array_(Sig,Bin2,Y+XLen,Endian,Len+XLen,[X|Acc]).
+
+decode_struct(SigList,Bin,Y,Endian) ->
+    decode_struct_(SigList,Bin,Y,Endian,0,[]).
+
+decode_struct_(SigList,Bin,Y,Endian,Len,Acc) ->
+    case next_arg(SigList) of
 	{")",""} ->
-	    {list_to_tuple(reverse(Acc)),Y,Bin0};
-	{Sig,Es1} ->
-	    {Elem,Y1,Bin1} = decode_big(Y,Sig,Bin0),
-	    decode_struct_big(Y1,Es1,Bin1,[Elem|Acc])
+	    {list_to_tuple(reverse(Acc)),Len,Bin};
+	{Sig,SigList1} ->
+	    {E,ELen,Bin1} = decode(Sig,Bin,Y,Endian),
+	    decode_struct_(SigList1,Bin1,Y+ELen,
+			   Endian,Len+ELen,[E|Acc])
     end.
+
+decode_seq(SigList,Bin,Y,Endian) ->
+    decode_seq_(SigList,Bin,Y,Endian,0,[]).
+
+decode_seq_("",Bin,_Y,_Endian,Len,Acc) ->
+    {reverse(Acc),Len,Bin};
+decode_seq_(SigList,Bin,Y,Endian,Len,Acc) ->
+    {Sig,SigList1} = next_arg(SigList),
+    {E,ELen,Bin1} = decode(Sig,Bin,Y,Endian),
+    decode_seq_(SigList1,Bin1,Y+ELen,
+		Endian,Len+ELen,[E|Acc]).
 
 %%
 %% @doc
@@ -1008,8 +791,8 @@ validate_class($s, C) ->
     end;
 validate_class($w, C) -> 
     ((C >= $a) andalso (C =< $z)) orelse
-    ((C >= $A) andalso (C =< $Z)) orelse
-    ((C >= $0) andalso (C =< $9)) orelse (C =:= $_);
+				    ((C >= $A) andalso (C =< $Z)) orelse
+								    ((C >= $0) andalso (C =< $9)) orelse (C =:= $_);
 
 validate_class($D, C) -> not validate_class($d, C);
 validate_class($H, C) -> not validate_class($h, C);
@@ -1049,7 +832,7 @@ validate_string(_,_) ->
 %% Testing
 %%
 perf() ->
-    perf(1000).
+    perf(10000).
 
 perf(N) ->
     Sig = "(ya(nqiuxt)a{su}dsov)",
@@ -1059,8 +842,6 @@ perf(N) ->
 	      {19,20,21,22,23,24}],
 	 #{"a"=>1,"b"=>2,"c"=>3},
 	 3.14,"hello","/foo/bar", {"s","test"}},
-%%    {Data,Sz} = encode(big, Sig, V),
-%%    {V1,_Y1,<<>>} = decode(big, Sig, iolist_to_binary(Data)),
     Endian = big,
     perf_data(N, Endian, Sig, V).
 
@@ -1083,13 +864,13 @@ perf_binary(N) ->
     perf_data(N, Endian, Spec, V).
 
 perf_data(N, Endian, Spec, Value) ->
-    %% test_type(Endian, Spec, Value),
+    test_type(Endian, Spec, Value),
 
     T0 = erlang:monotonic_time(),
     perf_encode(N, Endian, Spec, Value),
     T1 = erlang:monotonic_time(),
 
-    {IOList,_Y1} = encode(Endian, 0, Spec, Value),
+    {IOList,_Y1} = encode(Spec, Value, 0, Endian),
     Bin = iolist_to_binary(IOList),
     T2 = erlang:monotonic_time(),
     perf_decode(N, Endian, Spec, Bin),
@@ -1097,24 +878,24 @@ perf_data(N, Endian, Spec, Value) ->
 
     Te = erlang:convert_time_unit(T1-T0,native,microsecond),
     Td = erlang:convert_time_unit(T3-T2,native,microsecond),
-    
+
     { (N / Te)*1000000,  (N / Td)*1000000 }.
-      
+
 
 perf_encode(0, _E, _Spec, _V) ->
     ok;
 perf_encode(I, E, Spec, V) ->
-    encode(E, 0, Spec, V),
+    encode(Spec, V, 0, E),
     perf_encode(I-1,E,Spec,V).
 
 perf_decode(0, _E, _Spec, _Bin) ->
     ok;
-perf_decode(I, E, Spec, Bin) ->
-    decode(E, 0, Spec, Bin),
-    perf_decode(I-1,E,Spec,Bin).
+perf_decode(I, Endian, Spec, Bin) ->
+    decode(Spec, Bin, 0, Endian),
+    perf_decode(I-1,Endian,Spec,Bin).
 
 
-    
+
 test() ->
     test_basic(),
     test_struct(),
@@ -1122,7 +903,7 @@ test() ->
     test_dict(),
     test_variant(),
     test_nested(),
-    test_erlang(),
+    %% test_erlang(),
     ok.
 
 test_basic() ->
@@ -1149,7 +930,7 @@ test_basic() ->
 
     test_type("d", -3.14),
     test_type("d", 1000.0001),
-    
+
     test_type("s", "Hello world"),
     test_type("s", ""),
     test_type("s", "foo"),
@@ -1165,7 +946,10 @@ test_struct() ->
     test_type("(iii)", {1,2,3}),
     test_type("(i(ii))", {1,{2,3}}),
     test_type("((ii)i)", {{1,2},3}),
-    test_type("(sid)", {"x",1,2.1}).
+    test_type("(sid)", {"x",1,2.1}),
+    test_type("(nqiuxt)", {1,2,3,4,5,6}),
+    test_type("(nqiuxt)", {-10,10,-20,20,-30,30}).
+    
 
 test_array() ->
     test_type("ai", [1,2,3,4]),
@@ -1191,7 +975,7 @@ test_nested() ->
 %%    test_type("(a{si}a{is})", { #{ "a"=>1, "b"=>2 }, #{ 1=>"a", 2=>"b"} }).
 
 test_erlang() ->
-    test_type("E", {hello,1.0,world,{1,2,3}}),
+    test_type("E", {"hello",1.0,"world",{1,2,3}}),
     test_type("E", {#{"a"=>1,17=>1},#{"b"=>18,18=>2}}).
 
 
@@ -1201,19 +985,12 @@ test_type(Spec, Value) ->
 
 test_type(Endian, Spec, Value) ->
     io:format("test: ~w spec=~s, value=~p\n", [Endian, Spec, Value]),
-    P0 = 0,
-    {IOList,Y1} = encode(Endian,P0,Spec,Value),
-    {Value1,Y1,<<>>} = decode(Endian,P0,Spec,iolist_to_binary(IOList)),
+    Y0 = 0,
+    {IOList,_Len} = encode(Spec, Value, Y0, Endian),
+    ?DBG("len:~w, size:~w, bin:~p\n", [_Len, iolist_size(IOList), IOList]),
+    {Value1,_Y1,<<>>} = decode(Spec,iolist_to_binary(IOList),Y0,Endian),
     if is_binary(Value1), is_list(Value) ->
 	    Value = binary_to_list(Value1);  %% special for testing "ay"
-       Spec =:= "v" ->
-	    if element(2,Value) =:= Value1 ->
-		    true;
-	       true ->
-		    io:format("bad_match:\n~p\ndo not match\n~p\n", 
-			      [element(2,Value), Value]),
-		    error(bad_match)
-	    end;
        Value1 =:= Value ->
 	    true;
        true ->

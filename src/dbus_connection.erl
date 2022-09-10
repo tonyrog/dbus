@@ -593,7 +593,7 @@ handle_input(Data,State) when is_binary(Data) ->
 		<<>> -> Data;
 		Data0 -> <<Data0/binary,Data/binary>>
 	    end,
-    try dbus_message:decode_dbus_header(0,Data1) of
+    try dbus_message:decode_dbus_header(Data1,0) of
 	{H,Y,Data2} ->
 	    P0 = ?PAD_SIZE(Y,8),
 	    Length = H#dbus_header.length,
@@ -609,14 +609,17 @@ handle_input(Data,State) when is_binary(Data) ->
 			      undefined -> [];
 			      Signature ->
 				  try dbus_codec:decode_args(
-					H#dbus_header.endian,0,
-					Signature,Body) of
-				      {Message,_Y1,<<>>} ->
+					Signature,Body,
+					0, H#dbus_header.endian)
+				  of
+				      {Message,_Len,<<>>} ->
 					  Message
 				  catch
 				      error:_Reason:Stack ->
 					  io:format("decode args error ~p:\n~p\n",
 						    [_Reason,Stack]),
+					  io:format("Body:Signature:~s\n~p\n",
+						    [Signature,Body]),
 					  ["error"]
 				  end
 			  end,
@@ -625,7 +628,7 @@ handle_input(Data,State) when is_binary(Data) ->
 	    end
     catch
 	error:more_data ->
-	    ?debug("handle_input: need more data\n", []),
+	    ?debug("handle_input: header need more data\n", []),
 	    {noreply, State#state { buf = Data1 }};
 	error:Reason:Stack ->
 	    io:format("decode args error:~p\n~p\n",  

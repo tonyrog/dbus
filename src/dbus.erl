@@ -47,45 +47,88 @@ setup() ->
 
 monitor_devices() ->
     {ok,C} = open(system),
-    Rs =
-	add_matches(C, 
+    Path = "/org/freedesktop/DBus",
+    Intf = "org.freedesktop.DBus",
+    Rmap =
+	add_matches(C, Path, Intf,
 		    [
 		     "eavesdrop=true,type='signal',member='DeviceAdded'",
 		     "eavesdrop=true,type='signal',member='DeviceRemoved'"
-		    ], []),
-    monitor_loop(Rs).
+		    ], #{}),
+    monitor_loop(Rmap, 1).
+
+
+monitor_buttons() ->
+    {ok,C} = open(system),
+    Path = "/org/gnome/Shell",
+    Intf = "org.gnome.Shell",
+    Rmap =
+	add_matches(C, Path, Intf, 
+		    [
+		     "eavesdrop=true,type='method_call',member='ShowOSD'"
+		    ], #{}),
+    monitor_loop(Rmap, 1).
+
+monitor_bluetooth() ->
+    monitor([
+	     "eavesdrop=true,type='method_call',path=/org/freedesktop/Notifications,member=Notify"
+	    ]).
+
+monitor_music() ->
+    monitor([
+	     "eavesdrop=true,type='signal',path=/org/mpris/MediaPlayer2,member=PropertiesChanged"
+	    ]).
+    
+
+monitor_signals() ->
+    monitor_signals("").
+monitor_signals(Filter) ->
+    monitor([append_filter("eavesdrop=true,type='signal'",Filter)]).
+
+append_filter(Rule, "") -> Rule;
+append_filter(Rule, Filter) -> Rule ++ "," ++ Filter.
+
+monitor_calls() ->
+    monitor([
+	     "eavesdrop=true,type='method_call'",
+	     "eavesdrop=true,type='method_return'"
+	    ]).
 
 monitor() ->
-    {ok,C} = open(),
-    Rs =
-	add_matches(C, 
-		    [
-		     "eavesdrop=true,type='method_call'",
-		     "eavesdrop=true,type='method_return'",
-		     "eavesdrop=true,type='error'"
-		    ], []),
-    monitor_loop(Rs).
+    monitor(["eavesdrop=true,type='method_call'",
+	     "eavesdrop=true,type='method_return'",
+	     "eavesdrop=true,type='signal'",
+	     "eavesdrop=true,type='error'"]).
 
-add_matches(C, [Rule|Rules], Acc) ->
-    {ok,Ref} = add_match(C, Rule),
-    add_matches(C, Rules, [Ref|Acc]);
-add_matches(_C, [], Acc) ->
+monitor(Rules) ->
+    {ok,C} = open(),
+    Path = "/org/freedesktop/DBus",
+    Intf = "org.freedesktop.DBus",
+    Rmap =
+	add_matches(C, Path, Intf, Rules, #{}),
+    monitor_loop(Rmap, 1).
+
+add_matches(C, Path, Intf, [Rule|Rules], Acc) ->
+    {ok,Ref} = add_match(C, Path, Intf, Rule),
+    add_matches(C, Path, Intf, Rules, Acc#{ Ref => true });
+add_matches(_C, _Path, _Intf, [], Acc) ->
     Acc.
     
-add_match(C, Rule) ->
+add_match(C, Path, Intf, Rule) ->
     org_freedesktop_dbus:add_match(C,
-				   [{destination,"org.freedesktop.DBus"},
-				    {path,"/org/freedesktop/DBus"}],
+				   [{destination,Intf},
+				    {path,Path}],
 				   Rule).
 
-monitor_loop(Refs) ->
+monitor_loop(Refs,I) ->
     receive
 	{dbus_match, Ref, Header, Message} ->
-	    case lists:member(Ref, Refs) of
+	    case maps:get(Ref, Refs, false) of
 		true ->
 		    Fds = Header#dbus_header.fields,
-		    io:format("~s sender=~s -> dest=~s serial=~w path=~s; interface=~s; member=~s\n~p\n", 
-			      [Header#dbus_header.message_type,
+		    io:format("~w: ~s sender=~s -> dest=~s serial=~w path=~s; interface=~s; member=~s\n~p\n\n", 
+			      [I, 
+			       Header#dbus_header.message_type,
 			       Fds#dbus_field.sender,
 			       Fds#dbus_field.destination,
 			       Header#dbus_header.serial,
@@ -94,20 +137,20 @@ monitor_loop(Refs) ->
 			       Fds#dbus_field.member,
 			       cstring(Message)
 			      ]),
-		    monitor_loop(Refs);
+		    monitor_loop(Refs,I+1);
 		false ->
-		    monitor_loop(Refs)
+		    monitor_loop(Refs,I)
 	    end;
 	{dbus_match_stop, Ref} ->
-	    case lists:member(Ref,Refs) of
+	    case maps:get(Ref,Refs,false) of
 		true ->
 		    ok;
 		false ->
-		    monitor_loop(Refs)
+		    monitor_loop(Refs,I)
 	    end;
 	Other ->
 	    io:format("GOT OTHER: ~p\n", [Other]),
-	    monitor_loop(Refs)
+	    monitor_loop(Refs,I)
     end.
 
 %% remove terminating 0 in cstrings for nicer looking output
