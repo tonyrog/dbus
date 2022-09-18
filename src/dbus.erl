@@ -119,8 +119,21 @@ dump_pulse() ->
 	      io:format("Sink ~s\n", [Sink]),
 	      dump_pulse_device(Connection, Sink)
       end, Sinks),
-
     dbus_connection:close(Connection).
+
+set_card_profile(Card, Profile) ->
+    PulseAddress = pulse_address(),
+    {ok,Connection} = dbus_connection:open(PulseAddress, external, false),
+    R = dbus_pulse:set_card_active_profile(Connection, Card, Profile),
+    dbus_connection:close(Connection),
+    R.
+
+set_device_volume(Device, Volume) ->
+    PulseAddress = pulse_address(),
+    {ok,Connection} = dbus_connection:open(PulseAddress, external, false),
+    R = dbus_pulse:set_device_volume(Connection, Device, Volume),
+    dbus_connection:close(Connection),
+    R.
 
 card_properties() ->
     [

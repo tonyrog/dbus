@@ -2,6 +2,7 @@
 %%% @copyright (C) 2022, Tony Rogvall
 %%% @doc
 %%%    Manual Pulse/DBUS interface! where is the xml file????
+%%%    https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/DBus/#controlapi
 %%% @end
 %%% Created : 14 Sep 2022 by Tony Rogvall <tony@rogvall.se>
 
@@ -62,10 +63,16 @@ get_host_name(Connection) ->
     get_prop(Connection,[{path,?ROOT}],"Hostname").
 get_default_channels(Connection) ->
     get_prop(Connection,[{path,?ROOT}],"DefaultChannels").
+set_default_channels(Connection, Channels) ->
+    set_prop(Connection,[{path,?ROOT}],"DefaultChannels", {"au", Channels}).
 get_default_sample_format(Connection) ->
     get_prop(Connection,[{path,?ROOT}],"DefaultSampleFormat").
+set_default_sample_format(Connection, Format) ->
+    set_prop(Connection,[{path,?ROOT}],"DefaultSampleFormat", {"u", Format}).
 get_default_sample_rate(Connection) -> 
     get_prop(Connection,[{path,?ROOT}],"DefaultSampleRate").
+set_default_sample_rate(Connection,Rate) -> 
+    set_prop(Connection,[{path,?ROOT}],"DefaultSampleRate", {"u", Rate}).
 get_cards(Connection) -> 
     get_prop(Connection,[{path,?ROOT}],"Cards").
 get_sinks(Connection) -> 
@@ -76,6 +83,8 @@ get_sources(Connection) ->
     get_prop(Connection,[{path,?ROOT}],"Sources").
 get_fallback_source(Connection) ->
     get_prop(Connection,[{path,?ROOT}],"FallbackSource").
+set_fallback_source(Connection, Path) ->
+    set_prop(Connection,[{path,?ROOT}],"FallbackSource", {"o", Path}).
 get_playback_streams(Connection) ->
     get_prop(Connection,[{path,?ROOT}],"PlaybackStreams").
 get_record_streams(Connection) ->
@@ -112,6 +121,8 @@ get_card_profiles(Connection, Card) ->
     get_card_prop(Connection,[{path,Card}],"Profiles").
 get_card_active_profile(Connection, Card) ->
     get_card_prop(Connection,[{path,Card}],"ActiveProfile").
+set_card_active_profile(Connection, Card, Profile) ->
+    set_card_prop(Connection,[{path,Card}],"ActiveProfile", {"o", Profile}).
 get_card_property_list(Connection, Card) ->
     get_card_prop(Connection,[{path,Card}],"PropertyList").
 
@@ -145,6 +156,8 @@ get_device_channels(Connection, Dev) ->
     get_device_prop(Connection,[{path,Dev}],"Channels").
 get_device_volume(Connection, Dev) ->
     get_device_prop(Connection,[{path,Dev}],"Volume").
+set_device_volume(Connection, Dev, Volume) ->
+    set_device_prop(Connection,[{path,Dev}],"Volume", {"u", Volume}).
 get_device_has_flat_volume(Connection, Dev) ->
     get_device_prop(Connection,[{path,Dev}],"HasFlatVolume").
 get_device_has_convertible_to_decibel_volume(Connection, Dev) ->
@@ -155,6 +168,8 @@ get_device_volume_steps(Connection, Dev) ->
     get_device_prop(Connection,[{path,Dev}],"VolumeSteps").
 get_device_mute(Connection, Dev) ->
     get_device_prop(Connection,[{path,Dev}],"Mute").
+set_device_mute(Connection, Dev, Mute) ->
+    set_device_prop(Connection,[{path,Dev}],"Mute", {"b", Mute}).
 get_device_has_hardware_volume(Connection, Dev) ->
     get_device_prop(Connection,[{path,Dev}],"HasHardwareVolume").
 get_device_has_hardware_mute(Connection, Dev) ->
@@ -175,6 +190,8 @@ get_device_ports(Connection, Dev) ->
     get_device_prop(Connection,[{path,Dev}],"Ports").
 get_device_active_port(Connection, Dev) ->
     get_device_prop(Connection,[{path,Dev}],"ActivePort").
+set_device_active_port(Connection, Dev, Port) ->
+    set_device_prop(Connection,[{path,Dev}],"ActivePort", {"u", Port}).
 get_device_property_list(Connection, Dev) ->
     get_device_prop(Connection,[{path,Dev}],"PropertyList").
 
@@ -192,9 +209,13 @@ get_device_port_priority(Connection, DevPort) ->
 %% wrappers for get properties
 get_card_prop(Connection,Fs,Name) ->
     get_prop(Connection,Fs,?IFCARD,Name).
+set_card_prop(Connection,Fs,Name,Value) ->
+    set_prop(Connection,Fs,?IFCARD,Name,Value).
 
 get_device_prop(Connection,Fs,Name) ->
     get_prop(Connection,Fs,?IFDEV,Name).
+set_device_prop(Connection,Fs,Name,Value) ->
+    set_prop(Connection,Fs,?IFDEV,Name,Value).
 
 get_device_port_prop(Connection,Fs,Name) ->
     get_prop(Connection,Fs,?IFDEVPORT,Name).
@@ -208,6 +229,13 @@ get_prop(Connection,Fs,Interface,Name) ->
 	Other ->
 	    Other
     end.
+
+%% note that the value must be variant! {Signature,Value}
+set_prop(Connection,Fs,Name,Value) ->
+    set_prop(Connection,Fs,?IF,Name,Value).
+set_prop(Connection,Fs,Interface,Name,Value) ->
+    org_freedesktop_dbus_properties:set(Connection,Fs,Interface,
+					Name,Value).
 
 get_all_props(Connection,Fs) ->
     get_all_props(Connection,Fs,?IF).
