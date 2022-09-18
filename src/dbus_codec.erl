@@ -153,14 +153,26 @@ encode(Signature, X, Y, Endian) ->
 	[?DBUS_DOUBLE] ->
 	    encode_double(X, Y, Endian);
 	[?DBUS_STRING] ->
+	    ?TRACE("~w: string:~ts\n", [Y, X]),
 	    encode_string(X, Y, ?MAX_STRING_SIZE, Endian);
 	[?DBUS_OBJPATH] ->
+	    ?TRACE("~w: objpath:~ts\n", [Y, X]),
 	    case is_valid_objpath(X) of
 		false -> erlang:error(not_an_objpath);
 		true -> encode_string(X, Y, ?MAX_OBJPATH_SIZE,Endian)
 	    end;
 	[?DBUS_SIGNATURE] ->
-	    encode_string(X, Y, ?MAX_SIGNATURE_SIZE, Endian);
+	    X1 = if is_atom(X) -> atom_to_list(X); 
+		    is_list(X) -> X 
+		 end,
+	    Bytes = unicode:characters_to_binary(X1),
+	    Len   = byte_size(Bytes),
+	    if Len =< ?MAX_SIGNATURE_SIZE ->
+		    ?TRACE("~w: signature:~ts\n", [Y, Bytes]),
+		    {[Len,Bytes,0],1+Len+1};
+	       true ->	       
+		    erlang:error(signature_too_long)
+	    end;
 	%% special case for binaries = "ay"
 	[?DBUS_ARRAY,?DBUS_BYTE] ->
 	    Bytes = iolist_to_binary(X),
@@ -175,6 +187,7 @@ encode(Signature, X, Y, Endian) ->
 	    {KSig,Es1} = next_arg(Es),
 	    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
 	    Iter = maps:iterator(X),
+	    ?TRACE("~w: dict of \"~s\"=>\"~s\" [\n",[Y,KSig,VSig]),
 	    LenPad = ?PAD_SIZE(Y,4),     %% pad uint32 length
 	    Y0 = Y+LenPad,               %% start array length
 	    Y1 = Y0+4,                   %% array start
@@ -184,10 +197,12 @@ encode(Signature, X, Y, Endian) ->
 		    erlang:error(dict_too_large);
 		{Vs,VSz} ->
 		    {LenBytes,LenSize} = encode_len(VSz,Y,Endian),
+		    ?TRACE("~w: size=~w\n", [Y+LenSize+EntPad+VSz,VSz]),
 		    {[LenBytes,<<?PAD(EntPad)>>,Vs], LenSize+EntPad+VSz}
 	    end;
 	[?DBUS_ARRAY|Es] ->
 	    {ESig,""} = next_arg(Es),   %% element type
+	    ?TRACE("~w: array of \"~s\" [\n", [Y, ESig]),
 	    LenPad = ?PAD_SIZE(Y,4),    %% pad uint32 length
 	    Y0 = Y+LenPad,              %% y0 is start of UINT32 
 	    Y1 = Y0+4,                  %% y1 is after UINT32
@@ -198,25 +213,34 @@ encode(Signature, X, Y, Endian) ->
 		    erlang:error(array_too_long);
 		{Vs,VSz} ->
 		    {LenBytes,LenSize} = encode_len(VSz,Y,Endian),
+		    ?TRACE("~w: size=~w\n", [Y+LenSize+EntPad+VSz,VSz]),
 		    {[LenBytes,<<?PAD(EntPad)>>,Vs],LenSize+EntPad+VSz}
 	    end;
 	[?DBUS_STRUCT_BEGIN|Es1] ->
 	    EntPad = ?PAD_SIZE(Y, 8),
+	    ?TRACE("~w: struct [\n", [Y]),
 	    {SBin,SLen} = encode_struct(Es1,X,Y+EntPad,Endian),
+	    ?TRACE("~w: size=~w ]\n", [Y+EntPad+SLen, SLen]),	    
 	    {[<<?PAD(EntPad)>>,SBin],EntPad+SLen};
+
 	[?DBUS_DICT_ENTRY_BEGIN|Es] ->
 	    {K,V} = X,
 	    {KSig,Es1} = next_arg(Es),
 	    {VSig,[?DBUS_DICT_ENTRY_END]} = next_arg(Es1),
+	    ?TRACE("~w: entry ~s, ~s [\n", [Y,KSig,VSig]),
 	    EntPad = ?PAD_SIZE(Y, 8),
 	    {KBin,KLen} = encode(KSig,K,Y+EntPad,Endian),
 	    Y2 = Y+EntPad+KLen,
 	    {VBin,VLen} = encode(VSig,V,Y2,Endian),
+	    ?TRACE("~w: size=~w]\n", [Y+KLen+VLen, KLen+VLen]),
 	    {[<<?PAD(EntPad)>>,KBin,VBin], EntPad+KLen+VLen};
+
 	[?DBUS_VARIANT] ->
 	    {Sig,Val} = X,
+	    ?TRACE("~w: variant [\n", [Y]),
 	    {SBin,SLen} = encode([?DBUS_SIGNATURE],efilter(Sig),Y,Endian),
 	    {VBin,VLen} = encode(Sig,Val,Y+SLen,Endian),
+	    ?TRACE("~w: ]\n", [Y+SLen+VLen]),
 	    {[SBin,VBin], SLen+VLen};
 	[?DBUS_ERLANG] ->
 	    Variant = dbus_erlang:evariant(X),
@@ -224,62 +248,79 @@ encode(Signature, X, Y, Endian) ->
     end.
 
 encode_byte(X, _Y, _) ->
+    ?TRACE("~w: byte:~w\n", [_Y, X]),
     {<<X:8/unsigned-integer>>, 1}.
 
 encode_int16(X, Y, little) ->
     Pad = ?PAD_SIZE(Y, 2),
+    ?TRACE("~w: int16:~w\n", [Y, X]),
     {<<?PAD(Pad),X:16/little-signed-integer>>, 2+Pad};
 encode_int16(X, Y, big) ->
     Pad = ?PAD_SIZE(Y, 2),
+    ?TRACE("~w: int16:~w\n", [Y, X]),
     {<<?PAD(Pad),X:16/big-signed-integer>>, 2+Pad}.
 
 encode_uint16(X, Y, little) ->
     Pad = ?PAD_SIZE(Y, 2),
+    ?TRACE("~w: uint16:~w\n", [Y, X]),
     {<<?PAD(Pad),X:16/little-unsigned-integer>>, 2+Pad};
 encode_uint16(X, Y, big) ->
     Pad = ?PAD_SIZE(Y, 2),
+    ?TRACE("~w: uint16:~w\n", [Y, X]),
     {<<?PAD(Pad),X:16/big-unsigned-integer>>, 2+Pad}.
 
 encode_int32(X, Y, little) ->
     Pad = ?PAD_SIZE(Y, 4),
+    ?TRACE("~w: int32:~w\n", [Y, X]),
     {<<?PAD(Pad),X:32/little-signed-integer>>, 4+Pad};
 encode_int32(X, Y, big) ->
     Pad = ?PAD_SIZE(Y, 4),
+    ?TRACE("~w: int32:~w\n", [Y, X]),
     {<<?PAD(Pad),X:32/big-signed-integer>>, 4+Pad}.
 
 encode_uint32(X, Y, little) ->
     Pad = ?PAD_SIZE(Y, 4),
+    ?TRACE("~w: uint32:~w\n", [Y, X]),
     {<<?PAD(Pad),X:32/little-unsigned-integer>>, 4+Pad};
 encode_uint32(X, Y, big) ->
     Pad = ?PAD_SIZE(Y, 4),
+    ?TRACE("~w: uint32:~w\n", [Y, X]),
     {<<?PAD(Pad),X:32/big-unsigned-integer>>, 4+Pad}.
 
 encode_len(X, Y, little) ->
     Pad = ?PAD_SIZE(Y, 4),
+    ?TRACE("~w: len32:~w\n", [Y, X]),
     {<<?PAD(Pad),X:32/little-unsigned-integer>>, 4+Pad};
 encode_len(X, Y, big) ->
     Pad = ?PAD_SIZE(Y, 4),
+    ?TRACE("~w: len32:~w\n", [Y, X]),
     {<<?PAD(Pad),X:32/big-unsigned-integer>>, 4+Pad}.
 
 encode_uint64(X, Y, little) ->
     Pad = ?PAD_SIZE(Y, 8),
+    ?TRACE("~w: uint64:~w\n", [Y, X]),
     {<<?PAD(Pad),X:64/little-unsigned-integer>>, 8+Pad};
 encode_uint64(X, Y, big) ->
     Pad = ?PAD_SIZE(Y, 8),
+    ?TRACE("~w: uint64:~w\n", [Y, X]),
     {<<?PAD(Pad),X:64/big-unsigned-integer>>, 8+Pad}.
 
 encode_int64(X, Y, little) ->
     Pad = ?PAD_SIZE(Y, 8),
+    ?TRACE("~w: int64:~w\n", [Y, X]),
     {<<?PAD(Pad),X:64/little-signed-integer>>, 8+Pad};
 encode_int64(X, Y, big) ->
     Pad = ?PAD_SIZE(Y, 8),
+    ?TRACE("~w: int64:~w\n", [Y, X]),
     {<<?PAD(Pad),X:64/big-signed-integer>>, 8+Pad}.
 
 encode_double(X, Y, little) ->
     Pad = ?PAD_SIZE(Y, 8),
+    ?TRACE("~w: double:~w\n", [Y, X]),
     {<<?PAD(Pad),X:64/little-float>>, 8+Pad};
 encode_double(X, Y, big) ->
     Pad = ?PAD_SIZE(Y, 8),
+    ?TRACE("~w: double:~w\n", [Y, X]),
     {<<?PAD(Pad),X:64/big-float>>, 8+Pad}.
 
 encode_string(X, Y, MaxLen, Endian) ->
@@ -290,8 +331,6 @@ encode_string(X, Y, MaxLen, Endian) ->
     Len   = byte_size(Bytes),
     if Len > MaxLen ->
 	    erlang:error(string_too_long);
-       MaxLen =:= 255 ->
-	    {[Len,Bytes,0],1+Len+1};
        true ->
 	    {LenBytes,LenSize} = encode_len(Len,Y,Endian),
 	    {[LenBytes,Bytes,0],LenSize+Len+1}

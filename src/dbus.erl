@@ -40,34 +40,33 @@ open(Address) ->
 close(C) ->
     dbus_connection:close(C).
 
-
 %% this will setup a number of interfaces
 setup() ->
     dbus_compile:builtin().
 
 monitor_devices() ->
     {ok,C} = open(system),
-    Path = "/org/freedesktop/DBus",
-    Intf = "org.freedesktop.DBus",
+    MonFs = [{path, "/org/freedesktop/DBus"},
+	     {destination, "org.freedesktop.DBus"}],
     Rmap =
-	add_matches(C, Path, Intf,
+	add_matches(C, MonFs,
 		    [
 		     "eavesdrop=true,type='signal',member='DeviceAdded'",
 		     "eavesdrop=true,type='signal',member='DeviceRemoved'"
 		    ], #{}),
-    monitor_loop(Rmap, 1).
+    monitor_loop(C,Rmap, 1).
 
 
 monitor_buttons() ->
     {ok,C} = open(system),
-    Path = "/org/gnome/Shell",
-    Intf = "org.gnome.Shell",
+    MonFs = [{path, "/org/gnome/Shell"},
+	     {destination, "org.gnome.Shell"}],
     Rmap =
-	add_matches(C, Path, Intf, 
+	add_matches(C, MonFs,
 		    [
 		     "eavesdrop=true,type='method_call',member='ShowOSD'"
 		    ], #{}),
-    monitor_loop(Rmap, 1).
+    monitor_loop(C,Rmap, 1).
 
 monitor_bluetooth() ->
     monitor([
@@ -78,7 +77,160 @@ monitor_music() ->
     monitor([
 	     "eavesdrop=true,type='signal',path=/org/mpris/MediaPlayer2,member=PropertiesChanged"
 	    ]).
-    
+
+pulse_address() ->
+    {ok, C} = dbus_connection:open(session),
+    Interface_name = "org.PulseAudio.ServerLookup1",
+    Fs = [{destination,"org.PulseAudio1"},
+	  {path,"/org/pulseaudio/server_lookup1"}],
+    {ok,[{"s",Addr}]} = org_freedesktop_dbus_properties:get(C,Fs,
+							  Interface_name,
+							  "Address"),
+    Addr.
+
+
+dump_pulse() ->
+    PulseAddress = pulse_address(),
+    io:format("connect to pulse @ ~s\n", [PulseAddress]),
+    {ok,Connection} = dbus_connection:open(PulseAddress, external, false),
+    %%Fs = [{path, "/org/pulseaudio/core1"},{destination, "org.PulseAudio1"}],
+    {ok,Name} = dbus_pulse:get_name(Connection),
+    {ok,Version} = dbus_pulse:get_version(Connection),    
+    {ok,Cards} = dbus_pulse:get_cards(Connection),
+    {ok,Sinks} = dbus_pulse:get_sinks(Connection),
+    {ok,Sources} = dbus_pulse:get_sources(Connection),
+    {ok,Streams} = dbus_pulse:get_playback_streams(Connection),
+    io:format("Name = ~p\n", [Name]),
+    io:format("Version = ~p\n", [Version]),
+    io:format("Cards = ~p\n", [Cards]),
+    io:format("Sinks = ~p\n", [Sinks]), 
+    io:format("Sources = ~p\n", [Sources]), 
+    io:format("Streams = ~p\n", [Streams]), 
+    %% Cards
+    lists:foreach(
+      fun(Card) ->
+	      io:format("Card ~p\n", [Card]),
+	      dump_pulse_card(Connection, Card)
+      end, Cards),
+
+    %% Sinks
+    lists:foreach(
+      fun(Sink) ->
+	      io:format("Sink ~s\n", [Sink]),
+	      dump_pulse_device(Connection, Sink)
+      end, Sinks),
+
+    dbus_connection:close(Connection).
+
+card_properties() ->
+    [
+     index,
+     name,
+     driver,
+     owner_module,
+     sinks,
+     sources,
+     profiles,
+     active_profile,
+     property_list
+    ].
+
+dump_pulse_card(Connection, Card) ->
+    lists:foreach(
+      fun(Prop) ->
+	      Value = get_property(card,Prop,Connection,Card),
+	      Value1 = if Prop =:= property_list -> cprop(Value);
+			  true -> Value
+		       end,
+	      io:format("~s: ~p\n", [Prop, Value1])
+      end, card_properties()).
+
+device_properties() ->
+    [
+     name,
+     driver,
+     owner_module,
+     card,
+     sample_format,
+     sample_rate,
+     channels,
+     volume,
+     has_flat_volume,
+     has_convertible_to_decibel_volume,
+     base_volume,
+     volume_steps,
+     mute,
+     has_hardware_volume,
+     has_hardware_mute,
+     configured_latency,
+     has_dynamic_latency,
+     latency,
+     is_hardware_device,
+     is_network_device,
+     state,
+     ports,
+     active_port,
+     property_list
+    ].
+
+dump_pulse_device(Connection, Dev) ->
+    lists:foreach(
+      fun(Prop) ->
+	      Value = get_property(device,Prop,Connection,Dev),
+	      Value1 = if Prop =:= property_list -> cprop(Value);
+			  true -> Value
+		       end,
+	      io:format("~s: ~p\n",
+		       [Prop, Value1])
+      end, device_properties()).
+
+
+get_property(Kind, Prop, Connection, Path) ->
+    Func = list_to_atom("get_"++atom_to_list(Kind)++"_"++atom_to_list(Prop)),
+    case apply(dbus_pulse, Func, [Connection, Path]) of
+	{ok, Value} ->
+	    Value;
+	Error ->
+	    Error
+    end.
+
+
+monitor_pulse() ->
+    monitor_pulse("").
+
+signals() ->
+    [
+     "org.PulseAudio.Core1.NewCard",    
+     "org.PulseAudio.Core1.CardRemoved",
+     "org.PulseAudio.Core1.Device.MuteUpdated",
+     "org.PulseAudio.Core1.Device.StateUpdated", 
+     "org.PulseAudio.Core1.Stream.VolumeUpdated"
+     "org.PulseAudio.Core1.Client.ClientEvent",
+     "org.PulseAudio.Core1.Client.UpdateProperties",
+     "org.PulseAudio.Ext.StreamRestore1.DeviceUpdated",
+     "org.PulseAudio.Ext.StreamRestore1.VolumeUpdated",
+     "org.PulseAudio.Ext.StreamRestore1.MuteUpdated"
+    ].
+
+monitor_pulse(_Filter) ->
+    PulseAddress = pulse_address(),
+    io:format("connect to pulse @ ~s\n", [PulseAddress]),
+    {ok,C} = dbus_connection:open(PulseAddress, external, false),
+
+    Fs = [{path, "/org/pulseaudio/core1"},{destination, "org.PulseAudio1"}],
+
+    Rmap = 
+	lists:foldl(
+	  fun(Sig, Map) ->
+		  %% filter objects (paths) may be given as list
+		  {ok,Ref} = dbus_pulse:listen_for_signal(C,Fs,Sig,[]),
+		  Map# { Ref => true }
+	  end, #{}, signals()),
+
+    monitor_loop(C, Rmap, 1).
+
+
+
 
 monitor_signals() ->
     monitor_signals("").
@@ -101,26 +253,25 @@ monitor() ->
 	     "eavesdrop=true,type='error'"]).
 
 monitor(Rules) ->
-    {ok,C} = open(),
-    Path = "/org/freedesktop/DBus",
-    Intf = "org.freedesktop.DBus",
-    Rmap =
-	add_matches(C, Path, Intf, Rules, #{}),
-    monitor_loop(Rmap, 1).
+    MonFs = [{path, "/org/freedesktop/DBus"},
+	     {destination,"org.freedesktop.DBus"}],
+    monitor(Rules, session, MonFs, _Hello=true, external).
 
-add_matches(C, Path, Intf, [Rule|Rules], Acc) ->
-    {ok,Ref} = add_match(C, Path, Intf, Rule),
-    add_matches(C, Path, Intf, Rules, Acc#{ Ref => true });
-add_matches(_C, _Path, _Intf, [], Acc) ->
+monitor(Rules, Address, MonFs, Hello, AuthType) when is_boolean(Hello) ->
+    {ok,C} = dbus_connection:open(Address, AuthType, Hello),
+    Rmap = add_matches(C, MonFs, Rules, #{}),
+    monitor_loop(C, Rmap, 1).
+
+add_matches(C, MonFs, [Rule|Rules], Acc) ->
+    {ok,Ref} = add_match(C, MonFs, Rule),
+    add_matches(C, MonFs, Rules, Acc#{ Ref => true });
+add_matches(_C, _MonFs, [], Acc) ->
     Acc.
     
-add_match(C, Path, Intf, Rule) ->
-    org_freedesktop_dbus:add_match(C,
-				   [{destination,Intf},
-				    {path,Path}],
-				   Rule).
+add_match(C, MonFs, Rule) ->
+    org_freedesktop_dbus:add_match(C, MonFs, Rule).
 
-monitor_loop(Refs,I) ->
+monitor_loop(C, Refs,I) ->
     receive
 	{dbus_match, Ref, Header, Message} ->
 	    case maps:get(Ref, Refs, false) of
@@ -135,32 +286,87 @@ monitor_loop(Refs,I) ->
 			       Fds#dbus_field.path,
 			       Fds#dbus_field.interface,
 			       Fds#dbus_field.member,
-			       cstring(Message)
+			       Message
 			      ]),
-		    monitor_loop(Refs,I+1);
+		    monitor_loop(C, Refs,I+1);
 		false ->
-		    monitor_loop(Refs,I)
+		    monitor_loop(C, Refs,I)
 	    end;
 	{dbus_match_stop, Ref} ->
 	    case maps:get(Ref,Refs,false) of
 		true ->
 		    ok;
 		false ->
-		    monitor_loop(Refs,I)
+		    monitor_loop(C, Refs,I)
 	    end;
+	{signal, _Ref, Header, Message} ->
+	    Fds = Header#dbus_header.fields,
+	    case {Fds#dbus_field.interface,Fds#dbus_field.member} of
+		{"org.PulseAudio.Core1", "NewCard"} ->
+		    [Card|_] = Message,
+		    io:format("NEW CARD: ~p\n", [Card]),
+		    dump_pulse_card(C, Card),
+		    {ok,Sinks} = dbus_pulse:get_card_sinks(C, Card),
+		    %% Sinks
+		    lists:foreach(
+		      fun(Sink) ->
+			      io:format("Sink ~s\n", [Sink]),
+			      dump_pulse_device(C, Sink)
+		      end, Sinks),
+		    io:format("-------------------\n"),
+		    monitor_loop(C,Refs,I);
+		{"org.PulseAudio.Core1", "CardRemoved"} ->
+		    [Card|_] = Message,
+		    io:format("CARD REMOVED: ~p\n", [Card]),
+		    io:format("-------------------\n"),
+		    monitor_loop(C,Refs,I);
+		_ ->
+		    dump_signal(I, Header, Message),
+		    monitor_loop(C, Refs,I+1)
+	    end;
+%%		    
+%%	{signal, Ref, Header, Message} ->
+%%	    case maps:get(Ref, Refs, false) of
+%%		true ->
+%%		    dump_signal(I, Header, Message),
+%%		    monitor_loop(C, Refs,I+1);
+%%		false ->
+%%		    monitor_loop(C, Refs,I)
+%%	    end;
 	Other ->
 	    io:format("GOT OTHER: ~p\n", [Other]),
-	    monitor_loop(Refs,I)
+	    monitor_loop(C, Refs,I)
     end.
 
-%% remove terminating 0 in cstrings for nicer looking output
-cstring([H|T]) -> [cstring(H)|cstring(T)];
-cstring([]) -> [];
-cstring(X) when is_tuple(X) -> list_to_tuple(cstring(tuple_to_list(X)));
-cstring(X) when is_binary(X) ->
-    S = byte_size(X)-1,
-    case X of
-	<<Y:S/binary,0>> -> Y;
-	_ -> X
+dump_signal(I, Header, Message) ->
+    Fds = Header#dbus_header.fields,
+    io:format("~w: ~s sender=~s -> dest=~s serial=~w path=~s; interface=~s; member=~s\n~p\n\n", 
+	      [I, 
+	       Header#dbus_header.message_type,
+	       Fds#dbus_field.sender,
+	       Fds#dbus_field.destination,
+	       Header#dbus_header.serial,
+	       Fds#dbus_field.path,
+	       Fds#dbus_field.interface,
+	       Fds#dbus_field.member,
+	       Message
+	      ]).
+
+cprop(Map) when is_map(Map) ->
+    maps:map(fun(_K,V) -> cstring(V) end, Map).
+		     
+%% format property_list values
+cstring(Value) when is_binary(Value) ->
+    Len = byte_size(Value),
+    case Value of
+	<<Val:(Len-1)/binary,0>> ->
+	    binary_to_list(Val);
+	_ ->
+	    Value
     end;
-cstring(X) -> X.
+cstring(Value) ->
+    Value.
+
+
+
+    

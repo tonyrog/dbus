@@ -31,8 +31,8 @@
 -export([encode_error/5]).
 -export([decode/1]).
 
-%% -define(debug(F,A), io:format((F),(A))).
--define(debug(F,A), ok).
+-define(debug(F,A), io:format((F),(A))).
+%% -define(debug(F,A), ok).
 
 -define(HEADER_SIGNATURE, "yyyyuua(yv)").
 

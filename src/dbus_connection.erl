@@ -26,10 +26,11 @@
 -behaviour(gen_server).
 
 %% API
--export([open/0, open/1]).
+-export([open/0, open/1, open/2, open/3]).
 -export([disconnect/1]).
 -export([close/1]).
 -export([call/4, signal/4, return/4, error/4]).
+-export([subscribe_to_signal/2, remove_subscription/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -51,26 +52,31 @@
 %%   authenticated
 %%   hello_sent
 %%   running
--record(state, {
-	  status :: undefined | connected | auth_sent | authenticated |
-		    hello_sent | running,
-	  socket,             %% current socket
-	  addr,               %% used peer address
-	  addr_list = [],     %% list of addresses to test
-	  guid,
-	  endian = little,
-	  wait_list = [],     %% [{Serial,From,Callback,Args}] 
-	  own_list  = [],     %% [{BusName, OwnerPid}]
-	  match_list = [],    %% [{Rule,#dbus_rule{} Rule,Ref,Pid}] 
-	  connection_name,    %% return value from hello
-	  buf = <<>>,         %% session data buffer
-	  client_serial = 1,
-	  server_serial = 1
-	 }).
+-record(state, 
+	{
+	 status :: undefined | connected | auth_sent | authenticated |
+		   hello_sent | running,
+	 socket,             %% current socket
+	 addr,               %% used peer address
+	 addr_list = [],     %% list of addresses to test
+	 guid,
+	 endian = little,
+	 wait_list = [],     %% [{Serial,From,Callback,Args}] 
+	 own_list  = [],     %% [{BusName, Mon, OwnerPid}]
+	 sig_map  = #{},     %% #{ {Interface,Member} => [{Mon,Pid}] }
+	 mon_map  = #{},     %% #{ Mon => {Interface,Member} }
+	 match_list = [],    %% [{Rule,#dbus_rule{} Rule,Ref,Pid}] 
+	 connection_name,    %% return value from hello
+	 buf = <<>>,         %% session data buffer
+	 client_serial = 1,
+	 server_serial = 1
+	}).
 
 -include("../include/dbus.hrl").
 
-
+-define(DEFAULT_DESTINATION, "org.freedesktop.DBus").
+-define(DEFAULT_PATH, "/org/freedesktop/DBus").
+-define(DEFAULT_INTERFACE, "org.freedesktop.DBus").
 
 %%%===================================================================
 %%% API
@@ -91,6 +97,12 @@ return(Connection, Fields, Data) when is_binary(Data) ->
 error(Connection, Fields, ErrorName, ErroText) ->
     gen_server:call(Connection, {error,Fields,ErrorName,ErroText}).
 
+subscribe_to_signal(Connection, Signal) ->
+    gen_server:call(Connection, {subscribe_to_signal,self(),Signal}).
+
+remove_subscription(Connection, Ref) ->
+    gen_server:call(Connection, {remove_subscription, Ref}).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Open the connection
@@ -101,28 +113,43 @@ error(Connection, Fields, ErrorName, ErroText) ->
 open() ->
     open(session).
 
-open(system) ->
-    case os:type() of
-	{unix, darwin} ->
-	    open("launchd:env=DBUS_LAUNCHD_SYSTEM_BUS_SOCKET");
-	{unix, linux} ->
-	    open("unix:path=/var/run/dbus/system_bus_socket")
-    end;
-open(session) ->
-    case os:type() of
-	{unix, darwin} ->
-	    open("launchd:env=DBUS_LAUNCHD_SESSION_BUS_SOCKET");
-	{unix, linux} ->
-	    Addr = os:getenv("DBUS_SESSION_BUS_ADDRESS"),
-	    open(Addr)
-    end;
 open(Address) ->
+    open(Address, external).
+
+open(Address, AuthType) ->
+    open(Address, AuthType, true).
+
+open(Address, AuthType, Hello) when is_boolean(Hello) ->
+    Address1 = get_address(Address),
     {ok, C} = gen_server:start_link(?MODULE, [], []),
-    ok = set_address(C, Address),
+    ok = set_address(C, Address1),
     ok = connect(C),
-    ok = authenticate(C, external),
-    {ok,[_ConnectionName]} = hello(C),
+    ok = authenticate(C, AuthType),
+    case Hello of
+	true ->
+	    {ok,[_ConnectionName]} = hello(C);
+	false ->
+	    ok = nohello(C)
+    end,
     {ok, C}.
+
+get_address(session) ->
+    case os:type() of
+	{unix, darwin} ->
+	    "launchd:env=DBUS_LAUNCHD_SESSION_BUS_SOCKET";
+	{unix, linux} ->
+	    os:getenv("DBUS_SESSION_BUS_ADDRESS", "")
+    end;
+get_address(system) ->
+    case os:type() of
+	{unix, darwin} ->
+	    "launchd:env=DBUS_LAUNCHD_SYSTEM_BUS_SOCKET";
+	{unix, linux} ->
+	    "unix:path=/var/run/dbus/system_bus_socket"
+    end;
+get_address(Address) when is_list(Address) ->
+    Address.
+
 
 close(C) ->
     disconnect(C),
@@ -147,6 +174,9 @@ authenticate(C, Type) ->
 hello(C) ->
     gen_server:call(C, hello).
 
+nohello(C) ->
+    gen_server:call(C, nohello).
+
 get_is_connected(C) ->
     gen_server:call(C, get_is_connected).
 
@@ -159,7 +189,6 @@ get_connection_name(C) ->
 %% get_is_anoymous
 %% get_is_server_id
 %% can_send_type
-
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -352,15 +381,21 @@ handle_call({authenticate,Type}, From, State) ->
 	    {reply, {error, ealready}, State}
     end;
 
+handle_call(nohello, _From, State) ->
+    {reply, ok, set_status(running, State)};
 handle_call(hello, From, State) ->
     case State#state.status of
 	authenticated ->
 	    Endian = State#state.endian,
 	    Serial = State#state.client_serial,
-	    Fd = #dbus_field { destination="org.freedesktop.DBus",
-			       path="/org/freedesktop/DBus",
-			       interface="org.freedesktop.DBus",
+	    Destination = ?DEFAULT_DESTINATION,
+	    Path = ?DEFAULT_PATH,
+	    Interface = ?DEFAULT_INTERFACE,
+	    Fd = #dbus_field { destination=Destination,
+			       path=Path,
+			       interface=Interface,
 			       member="Hello" },
+	    ?debug("Hello Fs=~p\n", [Fd]),
 	    {Msg,_L} = dbus_message:encode_call(Endian,Serial,Fd,"",[]),
 	    _Res = send(State#state.socket, Msg),
 	    inet:setopts(State#state.socket, [{active,once}]),
@@ -384,6 +419,39 @@ handle_call(get_is_authenticated, _From, State) ->
     end;
 handle_call(get_connection_name, _From, State) ->
     {reply, State#state.connection_name, State};
+
+handle_call({subscribe_to_signal,Pid,Signal},_From,State) ->
+    IFM={Interface,Member} = 
+	case string:rchr(Signal, $.) of
+	    0 -> {Signal,"unknown"};
+	    I -> 
+		{Intf,[$.|M]} = lists:split(I-1, Signal),
+		{Intf,M}
+	end,
+    Mon = monitor(process, Pid),
+    io:format("Subscribe: interface=~s, member=~s\n", [Interface, Member]),
+    State1 = add_mon(Mon, Pid, IFM, State),
+    {reply, {ok,Mon}, State1};
+
+handle_call({remove_subscription, Ref}, _From, State) ->
+    case maps:get(Ref, State#state.mon_map, false) of
+	false ->
+	    {reply, {error,enoent}, State};
+	{IFM,Pid} ->
+	    erlang:demonitor(Ref, [flush]),
+	    MonMap = maps:remove(Ref, State#state.mon_map),
+	    IFMList = maps:get(IFM, State#state.sig_map, []),
+	    case IFMList -- [{Ref,Pid}] of
+		[] ->
+		    SigMap = maps:remove(IFM, State#state.sig_map),
+		    {reply, {ok,IFM},
+		     State#state{mon_map=MonMap, sig_map=SigMap}};
+		IFMList1 -> %% sub remain on this sigbal
+		    SigMap = maps:put(IFM, IFMList1, State#state.sig_map),
+		    {reply, ok,
+		     State#state{mon_map=MonMap, sig_map=SigMap}}
+	    end
+    end;
 	    
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State}.
@@ -469,7 +537,8 @@ handle_info({tcp, S, _Info="REJECTED " ++ Line},
 handle_info({'DOWN',Mon,process,Pid,_Reason}, State) ->
     case lists:keytake(Mon, 2, State#state.own_list) of
 	false ->
-	    {noreply, State};
+	    State1 = remove_mon(Mon, State),
+	    {noreply, State1};
 	{value,{_Name,Mon,Pid},OwnList} ->
 	    %% RelaseName ?
 	    {noreply, State#state { own_list = OwnList }}
@@ -510,6 +579,31 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+add_mon(Mon, Pid, IFM={_Interface,_Member}, State) ->
+    IFMList = maps:get(IFM, State#state.sig_map, []),
+    SigMap = maps:put(IFM, [{Mon,Pid}|IFMList], State#state.sig_map),
+    MonMap = maps:put(Mon, {IFM,Pid}, State#state.mon_map),
+    io:format("SigMap = ~p\n", [SigMap]),
+    io:format("MonMap = ~p\n", [MonMap]),
+    State#state { sig_map = SigMap, mon_map = MonMap }.
+
+remove_mon(Mon, State) ->
+    case maps:get(Mon, State#state.mon_map, false) of
+	false ->
+	    State;
+	{IFM,_Pid} ->
+	    IFMList = maps:get(IFM, State#state.sig_map, []),
+	    SigMap = 
+		case lists:keydelete(Mon,1,IFMList) of
+		    [] ->
+			maps:remove(IFM, State#state.sig_map);
+		    IFMList1 ->
+			maps:put(IFM, IFMList1, State#state.sig_map)
+		end,
+	    MonMap = maps:remove(Mon, State#state.mon_map),
+	    State#state { sig_map = SigMap, mon_map = MonMap }
+    end.
 
 calc_challenge() ->
     UnixTime = erlang:system_time(seconds),
@@ -586,6 +680,9 @@ send(S, Data) ->
     ?debug("~s: Send ~p\n", [?MODULE, iolist_to_binary(Data)]),
     gen_tcp:send(S, Data).
 
+handle_more_input(State) ->
+    handle_input(State#state.buf, State#state { buf = <<>> }).
+    
 handle_input(<<>>,State) ->
     {noreply,State};
 handle_input(Data,State) when is_binary(Data) ->
@@ -646,13 +743,11 @@ handle_msg(H, Msg, State) ->
 	    case lists:keytake(Serial,1,State#state.wait_list) of
 		{value,{_,From,Callback,As},WaitList} ->
 		    State1 = Callback({ok,Msg},As,From,State),
-		    State2 = State1#state { buf = <<>>,
-					    wait_list = WaitList },
-		    handle_input(State#state.buf, State2);
+		    State2 = State1#state { wait_list = WaitList },
+		    handle_more_input(State2);
 		false ->
 		    %% warning: bad serial
-		    State1 = State#state { buf = <<>> },
-		    handle_input(State#state.buf, State1)
+		    handle_more_input(State)
 	    end;
 
 	error ->
@@ -663,37 +758,39 @@ handle_msg(H, Msg, State) ->
 	    case lists:keytake(Serial,1,State#state.wait_list) of
 		{value,{_,From,Callback,As},WaitList} ->
 		    State1 = Callback({error,{Error,ErrorText}},As,From,State),
-		    State2 = State1#state { buf = <<>>, wait_list = WaitList },
-		    handle_input(State#state.buf, State2);
+		    State2 = State1#state { wait_list = WaitList },
+		    handle_more_input(State2);
 		false ->
-		    State1 = State#state { buf = <<>> },
-		    handle_input(State#state.buf, State1)
+		    handle_more_input(State)
 	    end;
 
 	signal ->
 	    Fds = H#dbus_header.fields,
 	    Dest = Fds#dbus_field.destination,
 	    case lists:keyfind(Dest, 1, State#state.own_list) of
-		false ->
-		    State1 = State#state { buf = <<>> },
-		    handle_input(State#state.buf, State1);
+		false -> ok;
 		{_Name,_Mon, Owner} ->
-		    Owner ! {signal,self(),H,Msg},
-		    State1 = State#state { buf = <<>> },
-		    handle_input(State#state.buf, State1)
-	    end;
-
+		    Owner ! {signal,self(),H,Msg}
+	    end,
+	    ?debug("signal: interface=~p, member=~p\n", 
+		   [Fds#dbus_field.interface, Fds#dbus_field.member]),
+	    ?debug("sig_map: ~p\n", [State#state.sig_map]),
+	    IFM = {Fds#dbus_field.interface,Fds#dbus_field.member},
+	    lists:foreach(
+	      fun({Mon,Pid}) ->
+		      Pid ! {signal,Mon,H,Msg}
+	      end, maps:get(IFM, State#state.sig_map, [])),
+	    handle_more_input(State);
+	    
 	method_call ->
 	    Fds = H#dbus_header.fields,
 	    Dest = Fds#dbus_field.destination,
 	    case lists:keyfind(Dest, 1, State#state.own_list) of
 		false ->
-		    State1 = State#state { buf = <<>> },
-		    handle_input(State#state.buf, State1);
+		    handle_more_input(State);
 		{_Name,_Mon,Owner} ->
 		    Owner ! {call,self(),H,Msg},
-		    State1 = State#state { buf = <<>> },
-		    handle_input(State#state.buf, State1)
+		    handle_more_input(State)
 	    end
     end.
 
