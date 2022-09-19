@@ -16,6 +16,7 @@
 
 -define(IF,     ?INTERFACE).
 -define(IFCARD, ?INTERFACE++".Card").
+-define(IFPROF, ?INTERFACE++".CardProfile").
 -define(IFDEV,  ?INTERFACE++".Device").
 -define(IFDEVPORT,  ?INTERFACE++".DevicePort").
 -define(CARD(X), filename:join(?ROOT, X)).
@@ -134,6 +135,21 @@ get_card_profile_by_name(Connection, Card, Name) ->
 			  {member,"GetProfileByName"}],
 			 "s", [Name]).
 
+%% Properties
+get_card_profile_index(Connection, Profile) ->
+    get_card_profile_prop(Connection,[{path,Profile}],"Index").
+get_card_profile_name(Connection, Profile) ->
+    get_card_profile_prop(Connection,[{path,Profile}],"Name").
+get_card_profile_description(Connection, Profile) ->
+    get_card_profile_prop(Connection,[{path,Profile}],"Description").
+
+get_card_profile_sinks(Connection, Profile) ->
+    get_card_profile_prop(Connection,[{path,Profile}],"Sinks").
+get_card_profile_sources(Connection, Profile) ->
+    get_card_profile_prop(Connection,[{path,Profile}],"Sources").
+get_card_profile_priority(Connection, Profile) ->
+    get_card_profile_prop(Connection,[{path,Profile}],"Priority").
+
 %%%%%%%%%%%%%
 %% Devices (sinks/sources) dev=sinkX or sourceX
 %%%%%%%%%%%%%
@@ -211,6 +227,9 @@ get_card_prop(Connection,Fs,Name) ->
     get_prop(Connection,Fs,?IFCARD,Name).
 set_card_prop(Connection,Fs,Name,Value) ->
     set_prop(Connection,Fs,?IFCARD,Name,Value).
+
+get_card_profile_prop(Connection,Fs,Name) ->
+    get_prop(Connection,Fs,?IFPROF,Name).
 
 get_device_prop(Connection,Fs,Name) ->
     get_prop(Connection,Fs,?IFDEV,Name).

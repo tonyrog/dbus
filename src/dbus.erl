@@ -152,12 +152,35 @@ dump_pulse_card(Connection, Card) ->
     lists:foreach(
       fun(Prop) ->
 	      Value = get_property(card,Prop,Connection,Card),
-	      Value1 = if Prop =:= property_list -> cprop(Value);
-			  true -> Value
-		       end,
-	      io:format("~s: ~p\n", [Prop, Value1])
+	      io:format("~s: ~p\n", [Prop, Value]),
+	      if Prop =:= profiles ->
+		      lists:foreach(
+			fun(Profile) ->
+				dump_pulse_card_profile(Connection,Profile)
+			end, Value);
+		 true ->
+		      ok
+	      end
       end, card_properties()).
 
+profile_properties() ->
+    [
+     index,
+     name,
+     description,
+     sinks,
+     sources,
+     priority
+    ].
+
+dump_pulse_card_profile(Connection, Profile) ->
+    io:format("Profile ~p\n", [Profile]),
+    lists:foreach(
+      fun(Prop) ->
+	      Value = get_property(card_profile,Prop,Connection,Profile),
+	      io:format("  ~s: ~p\n", [Prop, Value])
+      end, profile_properties()).
+    
 device_properties() ->
     [
      name,
@@ -190,15 +213,16 @@ dump_pulse_device(Connection, Dev) ->
     lists:foreach(
       fun(Prop) ->
 	      Value = get_property(device,Prop,Connection,Dev),
-	      Value1 = if Prop =:= property_list -> cprop(Value);
-			  true -> Value
-		       end,
-	      io:format("~s: ~p\n",
-		       [Prop, Value1])
+	      io:format("~s: ~p\n",[Prop, Value])
       end, device_properties()).
 
-
+get_property(Kind,property_list,Connection, Path) ->
+    Value = get_prop_(Kind,property_list,Connection,Path),
+    cprop(Value);
 get_property(Kind, Prop, Connection, Path) ->
+    get_prop_(Kind, Prop, Connection, Path).
+
+get_prop_(Kind, Prop, Connection, Path) ->
     Func = list_to_atom("get_"++atom_to_list(Kind)++"_"++atom_to_list(Prop)),
     case apply(dbus_pulse, Func, [Connection, Path]) of
 	{ok, Value} ->
@@ -206,7 +230,6 @@ get_property(Kind, Prop, Connection, Path) ->
 	Error ->
 	    Error
     end.
-
 
 monitor_pulse() ->
     monitor_pulse("").
