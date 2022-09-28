@@ -116,9 +116,15 @@ dump_pulse() ->
     %% Sinks
     lists:foreach(
       fun(Sink) ->
-	      io:format("Sink ~s\n", [Sink]),
+	      io:format("[Sink ~s]\n", [Sink]),
 	      dump_pulse_device(Connection, Sink)
       end, Sinks),
+    %% Sources
+    lists:foreach(
+      fun(Source) ->
+	      io:format("[Source ~s]\n", [Source]),
+	      dump_pulse_device(Connection, Source)
+      end, Sources),
     dbus_connection:close(Connection).
 
 set_card_profile(Card, Profile) ->
@@ -343,12 +349,19 @@ monitor_loop(C, Refs,I) ->
 		    io:format("NEW CARD: ~p\n", [Card]),
 		    dump_pulse_card(C, Card),
 		    {ok,Sinks} = dbus_pulse:get_card_sinks(C, Card),
+		    {ok,Sources} = dbus_pulse:get_card_sources(C, Card),
 		    %% Sinks
 		    lists:foreach(
 		      fun(Sink) ->
-			      io:format("Sink ~s\n", [Sink]),
+			      io:format("[Sink ~s]\n", [Sink]),
 			      dump_pulse_device(C, Sink)
 		      end, Sinks),
+		    %% Sources
+		    lists:foreach(
+		      fun(Source) ->
+			      io:format("[Source ~s]\n", [Source]),
+			      dump_pulse_device(C, Source)
+		      end, Sources),		    
 		    io:format("-------------------\n"),
 		    monitor_loop(C,Refs,I);
 		{"org.PulseAudio.Core1", "CardRemoved"} ->
