@@ -78,78 +78,39 @@ private_files() ->
 	    ]
     ].
 
+
 linux_files() ->
     D = "/usr/share/dbus-1/interfaces",
     {ok,Files} = file:list_dir(D),
     [ {xml,D,F} || F <- Files, filename:extension(F) =:= ".xml" ].
 
-%% old list
--ifdef(not_used).
-linux_list_1() ->
-    ["org.freedesktop.UDisks.xml",
-     "org.fedoraproject.Config.Printing.xml",
-     "org.freedesktop.Accounts.User.xml",
-     "org.freedesktop.Accounts.xml",
-     "org.freedesktop.Avahi.AddressResolver.xml",
-     "org.freedesktop.Avahi.DomainBrowser.xml",
-     "org.freedesktop.Avahi.EntryGroup.xml",
-     "org.freedesktop.Avahi.HostNameResolver.xml",
-     "org.freedesktop.Avahi.RecordBrowser.xml",
-     "org.freedesktop.Avahi.Server.xml",
-     "org.freedesktop.Avahi.ServiceBrowser.xml",
-     "org.freedesktop.Avahi.ServiceResolver.xml",
-     "org.freedesktop.Avahi.ServiceTypeBrowser.xml",
-     "org.freedesktop.colord.sane.xml",
-     "org.freedesktop.ColorManager.Device.xml",
-     "org.freedesktop.ColorManager.Profile.xml",
-     "org.freedesktop.ColorManager.Sensor.xml",
-     "org.freedesktop.ColorManager.xml",
-     "org.freedesktop.ModemManager.Modem.Cdma.xml",
-     "org.freedesktop.ModemManager.Modem.Firmware.xml",
-     "org.freedesktop.ModemManager.Modem.Gsm.Card.xml",
-     "org.freedesktop.ModemManager.Modem.Gsm.Contacts.xml",
-     "org.freedesktop.ModemManager.Modem.Gsm.Hso.xml",
-     "org.freedesktop.ModemManager.Modem.Gsm.Network.xml",
-     "org.freedesktop.ModemManager.Modem.Gsm.SMS.xml",
-     "org.freedesktop.ModemManager.Modem.Gsm.Ussd.xml",
-     "org.freedesktop.ModemManager.Modem.Gsm.xml",
-     "org.freedesktop.ModemManager.Modem.Location.xml",
-     "org.freedesktop.ModemManager.Modem.Simple.xml",
-     "org.freedesktop.ModemManager.Modem.Time.xml",
-     "org.freedesktop.ModemManager.Modem.xml",
-     "org.freedesktop.ModemManager.xml",
-     "org.freedesktop.RealtimeKit1.xml",
-     "org.freedesktop.UDisks.Adapter.xml",
-     "org.freedesktop.UDisks.Device.xml",
-     "org.freedesktop.UDisks.Expander.xml",
-     "org.freedesktop.UDisks.Port.xml",
-     "org.freedesktop.UDisks.xml",
-     "org.freedesktop.UPower.Device.xml",
-     "org.freedesktop.UPower.KbdBacklight.xml",
-     "org.freedesktop.UPower.QoS.xml",
-     "org.freedesktop.UPower.Wakeups.xml",
-     "org.freedesktop.UPower.xml"
-    ].
--endif.
+%% remove files that do not go pass xml parser!
+buggy_files() ->
+    D = "/usr/share/dbus-1/interfaces",
+    Files = ["net.reactivated.Fprint.Device.xml",
+	     %% remove "all" Fprint xml
+	     "net.reactivated.Fprint.Manager.xml"],
+    [ {xml,D,F} || F <- Files ].
+
 
 builtin() ->
-    Dst = code:priv_dir(dbus),
+    BuildDir = filename:join(code:lib_dir(dbus), "build"),
     BeamDir = filename:join(code:lib_dir(dbus), "ebin"),
     Files = private_files() ++ 
 	case os:type() of
 	    {unix,linux} -> linux_files();
 	    _ -> []
-	end,
+	end -- buggy_files(),
     lists:foreach(
       fun({erl,Src,F}) ->
       	      SrcFile = filename:join(Src, F),
 	      io:format("Generate: ~s\n", [SrcFile]),
-	      DstFiles = generate_from_erl(SrcFile,Dst),
+	      DstFiles = generate_from_erl(SrcFile,BuildDir),
 	      compile_files(DstFiles, BeamDir, []);
 	 ({xml,Src,F}) ->
       	      SrcFile = filename:join(Src, F),
 	      io:format("Generate: ~s\n", [SrcFile]),
-	      DstFiles = generate_from_xml(SrcFile,Dst),
+	      DstFiles = generate_from_xml(SrcFile,BuildDir),
 	      compile_files(DstFiles, BeamDir, [])
       end, Files).
 %%
