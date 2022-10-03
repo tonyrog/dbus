@@ -89,18 +89,17 @@ buggy_files() ->
     D = "/usr/share/dbus-1/interfaces",
     Files = ["net.reactivated.Fprint.Device.xml",
 	     %% remove "all" Fprint xml
-	     "net.reactivated.Fprint.Manager.xml"],
+	     "net.reactivated.Fprint.Manager.xml"
+	    ],
     [ {xml,D,F} || F <- Files ].
-
 
 builtin() ->
     BuildDir = filename:join(code:lib_dir(dbus), "build"),
     BeamDir = filename:join(code:lib_dir(dbus), "ebin"),
-    Files = private_files() ++ 
-	case os:type() of
-	    {unix,linux} -> linux_files();
-	    _ -> []
-	end -- buggy_files(),
+    Files = ((case os:type() of
+		 {unix,linux} -> linux_files();
+		 _ -> []
+	      end) -- buggy_files()) ++ private_files(),
     lists:foreach(
       fun({erl,Src,F}) ->
       	      SrcFile = filename:join(Src, F),
