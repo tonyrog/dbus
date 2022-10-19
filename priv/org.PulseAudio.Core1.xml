@@ -1,0 +1,153 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+ <interface name="org.PulseAudio.Core1">
+  <method name="GetCardByName">
+   <arg name="name" type="s" direction="in"/>
+   <arg name="card" type="o" direction="out"/>
+  </method>
+  <method name="GetSinkByName">
+   <arg name="name" type="s" direction="in"/>
+   <arg name="sink" type="o" direction="out"/>
+  </method>
+  <method name="GetSourceByName">
+   <arg name="name" type="s" direction="in"/>
+   <arg name="source" type="o" direction="out"/>
+  </method>
+  <method name="GetSampleByName">
+   <arg name="name" type="s" direction="in"/>
+   <arg name="sample" type="o" direction="out"/>
+  </method>
+  <method name="UploadSample">
+   <arg name="name" type="s" direction="in"/>
+   <arg name="sample_format" type="u" direction="in"/>
+   <arg name="sample_rate" type="u" direction="in"/>
+   <arg name="channels" type="au" direction="in"/>
+   <arg name="default_volume" type="au" direction="in"/>
+   <arg name="property_list" type="a{say}" direction="in"/>
+   <arg name="data" type="ay" direction="in"/>
+   <arg name="sample" type="o" direction="out"/>
+  </method>
+  <method name="LoadModule">
+   <arg name="name" type="s" direction="in"/>
+   <arg name="arguments" type="a{ss}" direction="in"/>
+   <arg name="module" type="o" direction="out"/>
+  </method>
+  <method name="Exit">
+  </method>
+  <method name="ListenForSignal">
+   <arg name="signal" type="s" direction="in"/>
+   <arg name="objects" type="ao" direction="in"/>
+  </method>
+  <method name="StopListeningForSignal">
+   <arg name="signal" type="s" direction="in"/>
+  </method>
+  <property name="InterfaceRevision" type="u" access="read"/>
+  <property name="Name" type="s" access="read"/>
+  <property name="Version" type="s" access="read"/>
+  <property name="IsLocal" type="b" access="read"/>
+  <property name="Username" type="s" access="read"/>
+  <property name="Hostname" type="s" access="read"/>
+  <property name="DefaultChannels" type="au" access="readwrite"/>
+  <property name="DefaultSampleFormat" type="u" access="readwrite"/>
+  <property name="DefaultSampleRate" type="u" access="readwrite"/>
+  <property name="AlternateSampleRate" type="u" access="readwrite"/>
+  <property name="Cards" type="ao" access="read"/>
+  <property name="Sinks" type="ao" access="read"/>
+  <property name="FallbackSink" type="o" access="readwrite"/>
+  <property name="Sources" type="ao" access="read"/>
+  <property name="FallbackSource" type="o" access="readwrite"/>
+  <property name="PlaybackStreams" type="ao" access="read"/>
+  <property name="RecordStreams" type="ao" access="read"/>
+  <property name="Samples" type="ao" access="read"/>
+  <property name="Modules" type="ao" access="read"/>
+  <property name="Clients" type="ao" access="read"/>
+  <property name="MyClient" type="o" access="read"/>
+  <property name="Extensions" type="as" access="read"/>
+  <signal name="NewCard">
+   <arg name="card" type="o"/>
+  </signal>
+  <signal name="CardRemoved">
+   <arg name="card" type="o"/>
+  </signal>
+  <signal name="NewSink">
+   <arg name="sink" type="o"/>
+  </signal>
+  <signal name="SinkRemoved">
+   <arg name="sink" type="o"/>
+  </signal>
+  <signal name="FallbackSinkUpdated">
+   <arg name="sink" type="o"/>
+  </signal>
+  <signal name="FallbackSinkUnset">
+  </signal>
+  <signal name="NewSource">
+   <arg name="source" type="o"/>
+  </signal>
+  <signal name="SourceRemoved">
+   <arg name="source" type="o"/>
+  </signal>
+  <signal name="FallbackSourceUpdated">
+   <arg name="source" type="o"/>
+  </signal>
+  <signal name="FallbackSourceUnset">
+  </signal>
+  <signal name="NewPlaybackStream">
+   <arg name="playback_stream" type="o"/>
+  </signal>
+  <signal name="PlaybackStreamRemoved">
+   <arg name="playback_stream" type="o"/>
+  </signal>
+  <signal name="NewRecordStream">
+   <arg name="record_stream" type="o"/>
+  </signal>
+  <signal name="RecordStreamRemoved">
+   <arg name="record_stream" type="o"/>
+  </signal>
+  <signal name="NewSample">
+   <arg name="sample" type="o"/>
+  </signal>
+  <signal name="SampleRemoved">
+   <arg name="sample" type="o"/>
+  </signal>
+  <signal name="NewModule">
+   <arg name="module" type="o"/>
+  </signal>
+  <signal name="ModuleRemoved">
+   <arg name="module" type="o"/>
+  </signal>
+  <signal name="NewClient">
+   <arg name="client" type="o"/>
+  </signal>
+  <signal name="ClientRemoved">
+   <arg name="client" type="o"/>
+  </signal>
+  <signal name="NewExtension">
+   <arg name="extension" type="s"/>
+  </signal>
+  <signal name="ExtensionRemoved">
+   <arg name="extension" type="s"/>
+  </signal>
+ </interface>
+ <interface name="org.freedesktop.DBus.Introspectable">
+  <method name="Introspect">
+   <arg name="data" type="s" direction="out"/>
+  </method>
+ </interface>
+ <interface name="org.freedesktop.DBus.Properties">
+  <method name="Get">
+   <arg name="interface_name" type="s" direction="in"/>
+   <arg name="property_name" type="s" direction="in"/>
+   <arg name="value" type="v" direction="out"/>
+  </method>
+  <method name="Set">
+   <arg name="interface_name" type="s" direction="in"/>
+   <arg name="property_name" type="s" direction="in"/>
+   <arg name="value" type="v" direction="in"/>
+  </method>
+  <method name="GetAll">
+   <arg name="interface_name" type="s" direction="in"/>
+   <arg name="props" type="a{sv}" direction="out"/>
+  </method>
+ </interface>
+</node>

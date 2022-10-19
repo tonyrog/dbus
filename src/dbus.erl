@@ -44,8 +44,77 @@ close(C) ->
 setup() ->
     dbus_compile:builtin().
 
+%% check for xml spec of interface
+list_names() -> list_names(session).
+list_names(Address) ->
+    {ok, C} = dbus_connection:open(Address),
+    R = org_freedesktop_dbus:list_names(C,[{destination,"org.freedesktop.DBus"},
+					   {path,"/org/freedesktop/DBus"}]),
+    dbus_connection:close(C),
+    case R of
+	{ok,[List]} ->
+	    {ok, lists:sort([L || L <- List, hd(L) =/= $:])};
+	_ -> R
+    end.
+
+get_all(Path, Interface) ->
+    {ok, C} = dbus_connection:open(session),
+    All = get_all(C, Path, Interface),
+    dbus_connection:close(C),
+    All.
+
+get_all(C, Path, Interface) ->
+    Fs = [{path,Path}],
+    org_freedesktop_dbus_properties:get_all(C,Fs,Interface).
+
+i() ->
+    case list_names() of
+	{ok, List} ->
+	    lists:foreach(
+	      fun(Interface) -> 
+		      io:format("~s\n", [Interface])
+	      end, List);
+	Error ->
+	    Error
+    end.
+
+%% construct a path form interface name "org.foo.bar" => /org/foo/bar
+interface_to_path(Interface) ->
+    binary_to_list(iolist_to_binary(
+		     ["/"|re:replace(Interface, "\\.", "\\/", [global])])).
+
+introspect(Interface) ->
+    introspect(sesssion,interface_to_path(Interface), Interface).
+
+introspect(Address, Interface) ->
+    introspect(Address, interface_to_path(Interface), Interface).
+    
+introspect(Address, Path, Interface) ->
+    {ok, C} = dbus_connection:open(Address),
+    R = dbus_connection:call(C,
+			     [{path, Path},
+			      {destination, Interface},
+			      {interface,
+			       "org.freedesktop.DBus.Introspectable"},
+			      {member, "Introspect"}],
+			     "",
+			     []),
+    dbus_connection:close(C),
+    R.
+
+save_introspect(Interface, Filename) ->
+    save_introspect(session, interface_to_path(Interface), Interface, Filename).
+save_introspect(Address, Path, Interface, Filename) ->
+    case introspect(Address, Path, Interface) of
+	{ok, Xml} ->
+	    file:write_file(Filename, Xml);
+	Error ->
+	    Error
+    end.
+
 monitor_devices() ->
     {ok,C} = open(system),
+
     MonFs = [{path, "/org/freedesktop/DBus"},
 	     {destination, "org.freedesktop.DBus"}],
     Rmap =
@@ -78,201 +147,9 @@ monitor_music() ->
 	     "eavesdrop=true,type='signal',path=/org/mpris/MediaPlayer2,member=PropertiesChanged"
 	    ]).
 
-pulse_address() ->
-    {ok, C} = dbus_connection:open(session),
-    Interface_name = "org.PulseAudio.ServerLookup1",
-    Fs = [{destination,"org.PulseAudio1"},
-	  {path,"/org/pulseaudio/server_lookup1"}],
-    {ok,[{"s",Addr}]} = org_freedesktop_dbus_properties:get(C,Fs,
-							  Interface_name,
-							  "Address"),
-    Addr.
-
-
-dump_pulse() ->
-    PulseAddress = pulse_address(),
-    io:format("connect to pulse @ ~s\n", [PulseAddress]),
-    {ok,Connection} = dbus_connection:open(PulseAddress, external, false),
-    %%Fs = [{path, "/org/pulseaudio/core1"},{destination, "org.PulseAudio1"}],
-    {ok,Name} = dbus_pulse:get_name(Connection),
-    {ok,Version} = dbus_pulse:get_version(Connection),    
-    {ok,Cards} = dbus_pulse:get_cards(Connection),
-    {ok,Sinks} = dbus_pulse:get_sinks(Connection),
-    {ok,Sources} = dbus_pulse:get_sources(Connection),
-    {ok,Streams} = dbus_pulse:get_playback_streams(Connection),
-    io:format("Name = ~p\n", [Name]),
-    io:format("Version = ~p\n", [Version]),
-    io:format("Cards = ~p\n", [Cards]),
-    io:format("Sinks = ~p\n", [Sinks]), 
-    io:format("Sources = ~p\n", [Sources]), 
-    io:format("Streams = ~p\n", [Streams]), 
-    %% Cards
-    lists:foreach(
-      fun(Card) ->
-	      io:format("Card ~p\n", [Card]),
-	      dump_pulse_card(Connection, Card)
-      end, Cards),
-
-    %% Sinks
-    lists:foreach(
-      fun(Sink) ->
-	      io:format("[Sink ~s]\n", [Sink]),
-	      dump_pulse_device(Connection, Sink)
-      end, Sinks),
-    %% Sources
-    lists:foreach(
-      fun(Source) ->
-	      io:format("[Source ~s]\n", [Source]),
-	      dump_pulse_device(Connection, Source)
-      end, Sources),
-    dbus_connection:close(Connection).
-
-set_card_profile(Card, Profile) ->
-    PulseAddress = pulse_address(),
-    {ok,Connection} = dbus_connection:open(PulseAddress, external, false),
-    R = dbus_pulse:set_card_active_profile(Connection, Card, Profile),
-    dbus_connection:close(Connection),
-    R.
-
-set_device_volume(Device, Volume) ->
-    PulseAddress = pulse_address(),
-    {ok,Connection} = dbus_connection:open(PulseAddress, external, false),
-    R = dbus_pulse:set_device_volume(Connection, Device, Volume),
-    dbus_connection:close(Connection),
-    R.
-
-card_properties() ->
-    [
-     index,
-     name,
-     driver,
-     owner_module,
-     sinks,
-     sources,
-     profiles,
-     active_profile,
-     property_list
-    ].
-
-dump_pulse_card(Connection, Card) ->
-    lists:foreach(
-      fun(Prop) ->
-	      Value = get_property(card,Prop,Connection,Card),
-	      io:format("~s: ~p\n", [Prop, Value]),
-	      if Prop =:= profiles ->
-		      lists:foreach(
-			fun(Profile) ->
-				dump_pulse_card_profile(Connection,Profile)
-			end, Value);
-		 true ->
-		      ok
-	      end
-      end, card_properties()).
-
-profile_properties() ->
-    [
-     index,
-     name,
-     description,
-     sinks,
-     sources,
-     priority
-    ].
-
-dump_pulse_card_profile(Connection, Profile) ->
-    io:format("Profile ~p\n", [Profile]),
-    lists:foreach(
-      fun(Prop) ->
-	      Value = get_property(card_profile,Prop,Connection,Profile),
-	      io:format("  ~s: ~p\n", [Prop, Value])
-      end, profile_properties()).
-    
-device_properties() ->
-    [
-     name,
-     driver,
-     owner_module,
-     card,
-     sample_format,
-     sample_rate,
-     channels,
-     volume,
-     has_flat_volume,
-     has_convertible_to_decibel_volume,
-     base_volume,
-     volume_steps,
-     mute,
-     has_hardware_volume,
-     has_hardware_mute,
-     configured_latency,
-     has_dynamic_latency,
-     latency,
-     is_hardware_device,
-     is_network_device,
-     state,
-     ports,
-     active_port,
-     property_list
-    ].
-
-dump_pulse_device(Connection, Dev) ->
-    lists:foreach(
-      fun(Prop) ->
-	      Value = get_property(device,Prop,Connection,Dev),
-	      io:format("~s: ~p\n",[Prop, Value])
-      end, device_properties()).
-
-get_property(Kind,property_list,Connection, Path) ->
-    Value = get_prop_(Kind,property_list,Connection,Path),
-    cprop(Value);
-get_property(Kind, Prop, Connection, Path) ->
-    get_prop_(Kind, Prop, Connection, Path).
-
-get_prop_(Kind, Prop, Connection, Path) ->
-    Func = list_to_atom("get_"++atom_to_list(Kind)++"_"++atom_to_list(Prop)),
-    case apply(dbus_pulse, Func, [Connection, Path]) of
-	{ok, Value} ->
-	    Value;
-	Error ->
-	    Error
-    end.
-
-monitor_pulse() ->
-    monitor_pulse("").
-
-signals() ->
-    [
-     "org.PulseAudio.Core1.NewCard",    
-     "org.PulseAudio.Core1.CardRemoved",
-     "org.PulseAudio.Core1.Device.MuteUpdated",
-     "org.PulseAudio.Core1.Device.StateUpdated", 
-     "org.PulseAudio.Core1.Stream.VolumeUpdated"
-     "org.PulseAudio.Core1.Client.ClientEvent",
-     "org.PulseAudio.Core1.Client.UpdateProperties",
-     "org.PulseAudio.Ext.StreamRestore1.DeviceUpdated",
-     "org.PulseAudio.Ext.StreamRestore1.VolumeUpdated",
-     "org.PulseAudio.Ext.StreamRestore1.MuteUpdated"
-    ].
-
-monitor_pulse(_Filter) ->
-    PulseAddress = pulse_address(),
-    io:format("connect to pulse @ ~s\n", [PulseAddress]),
-    {ok,C} = dbus_connection:open(PulseAddress, external, false),
-
-    Fs = [{path, "/org/pulseaudio/core1"},{destination, "org.PulseAudio1"}],
-
-    Rmap = 
-	lists:foldl(
-	  fun(Sig, Map) ->
-		  %% filter objects (paths) may be given as list
-		  {ok,Ref} = dbus_pulse:listen_for_signal(C,Fs,Sig,[]),
-		  Map# { Ref => true }
-	  end, #{}, signals()),
-
-    monitor_loop(C, Rmap, 1).
-
-
-
+pulse_address() -> dbus_pulse:address().
+dump_pulse()    -> dbus_pulse:i().
+monitor_pulse() -> dbus_pulse:monitor().
 
 monitor_signals() ->
     monitor_signals("").
@@ -341,81 +218,7 @@ monitor_loop(C, Refs,I) ->
 		false ->
 		    monitor_loop(C, Refs,I)
 	    end;
-	{signal, _Ref, Header, Message} ->
-	    Fds = Header#dbus_header.fields,
-	    case {Fds#dbus_field.interface,Fds#dbus_field.member} of
-		{"org.PulseAudio.Core1", "NewCard"} ->
-		    [Card|_] = Message,
-		    io:format("NEW CARD: ~p\n", [Card]),
-		    dump_pulse_card(C, Card),
-		    {ok,Sinks} = dbus_pulse:get_card_sinks(C, Card),
-		    {ok,Sources} = dbus_pulse:get_card_sources(C, Card),
-		    %% Sinks
-		    lists:foreach(
-		      fun(Sink) ->
-			      io:format("[Sink ~s]\n", [Sink]),
-			      dump_pulse_device(C, Sink)
-		      end, Sinks),
-		    %% Sources
-		    lists:foreach(
-		      fun(Source) ->
-			      io:format("[Source ~s]\n", [Source]),
-			      dump_pulse_device(C, Source)
-		      end, Sources),		    
-		    io:format("-------------------\n"),
-		    monitor_loop(C,Refs,I);
-		{"org.PulseAudio.Core1", "CardRemoved"} ->
-		    [Card|_] = Message,
-		    io:format("CARD REMOVED: ~p\n", [Card]),
-		    io:format("-------------------\n"),
-		    monitor_loop(C,Refs,I);
-		_ ->
-		    dump_signal(I, Header, Message),
-		    monitor_loop(C, Refs,I+1)
-	    end;
-%%		    
-%%	{signal, Ref, Header, Message} ->
-%%	    case maps:get(Ref, Refs, false) of
-%%		true ->
-%%		    dump_signal(I, Header, Message),
-%%		    monitor_loop(C, Refs,I+1);
-%%		false ->
-%%		    monitor_loop(C, Refs,I)
-%%	    end;
 	Other ->
 	    io:format("GOT OTHER: ~p\n", [Other]),
 	    monitor_loop(C, Refs,I)
     end.
-
-dump_signal(I, Header, Message) ->
-    Fds = Header#dbus_header.fields,
-    io:format("~w: ~s sender=~s -> dest=~s serial=~w path=~s; interface=~s; member=~s\n~p\n\n", 
-	      [I, 
-	       Header#dbus_header.message_type,
-	       Fds#dbus_field.sender,
-	       Fds#dbus_field.destination,
-	       Header#dbus_header.serial,
-	       Fds#dbus_field.path,
-	       Fds#dbus_field.interface,
-	       Fds#dbus_field.member,
-	       Message
-	      ]).
-
-cprop(Map) when is_map(Map) ->
-    maps:map(fun(_K,V) -> cstring(V) end, Map).
-		     
-%% format property_list values
-cstring(Value) when is_binary(Value) ->
-    Len = byte_size(Value),
-    case Value of
-	<<Val:(Len-1)/binary,0>> ->
-	    binary_to_list(Val);
-	_ ->
-	    Value
-    end;
-cstring(Value) ->
-    Value.
-
-
-
-    

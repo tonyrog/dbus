@@ -75,9 +75,14 @@ private_files() ->
 	     "org.freedesktop.DBus.ObjectManager",
 	     %% Erlang hack
 	     "org.erlang.DBus"
-	    ]
-    ].
-
+	    ]] ++
+	[{xml,D,F} ||
+	    F <-
+		[%% media
+		 "org.mpris.MediaPlayer2.Player.xml",
+		 "io.snapcraft.Launcher.xml"
+		]
+	].
 
 linux_files() ->
     D = "/usr/share/dbus-1/interfaces",

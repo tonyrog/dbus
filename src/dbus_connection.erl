@@ -113,6 +113,8 @@ remove_subscription(Connection, Ref) ->
 open() ->
     open(session).
 
+open({Address,AuthType,Hello}) ->
+    open(Address, AuthType, Hello);
 open(Address) ->
     open(Address, external).
 
