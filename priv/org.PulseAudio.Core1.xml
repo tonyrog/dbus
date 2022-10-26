@@ -129,25 +129,5 @@
    <arg name="extension" type="s"/>
   </signal>
  </interface>
- <interface name="org.freedesktop.DBus.Introspectable">
-  <method name="Introspect">
-   <arg name="data" type="s" direction="out"/>
-  </method>
- </interface>
- <interface name="org.freedesktop.DBus.Properties">
-  <method name="Get">
-   <arg name="interface_name" type="s" direction="in"/>
-   <arg name="property_name" type="s" direction="in"/>
-   <arg name="value" type="v" direction="out"/>
-  </method>
-  <method name="Set">
-   <arg name="interface_name" type="s" direction="in"/>
-   <arg name="property_name" type="s" direction="in"/>
-   <arg name="value" type="v" direction="in"/>
-  </method>
-  <method name="GetAll">
-   <arg name="interface_name" type="s" direction="in"/>
-   <arg name="props" type="a{sv}" direction="out"/>
-  </method>
- </interface>
+
 </node>

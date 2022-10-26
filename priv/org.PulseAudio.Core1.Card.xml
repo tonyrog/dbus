@@ -1,0 +1,32 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+ <interface name="org.PulseAudio.Core1.Card">
+  <method name="GetProfileByName">
+   <arg name="name" type="s" direction="in"/>
+   <arg name="profile" type="o" direction="out"/>
+  </method>
+  <property name="Index" type="u" access="read"/>
+  <property name="Name" type="s" access="read"/>
+  <property name="Driver" type="s" access="read"/>
+  <property name="OwnerModule" type="o" access="read"/>
+  <property name="Sinks" type="ao" access="read"/>
+  <property name="Sources" type="ao" access="read"/>
+  <property name="Profiles" type="ao" access="read"/>
+  <property name="ActiveProfile" type="o" access="readwrite"/>
+  <property name="PropertyList" type="a{say}" access="read"/>
+  <signal name="ActiveProfileUpdated">
+   <arg name="profile" type="o"/>
+  </signal>
+  <signal name="NewProfile">
+   <arg name="profile" type="o"/>
+  </signal>
+  <signal name="ProfileAvailableChanged">
+   <arg name="profile" type="o"/>
+   <arg name="available" type="b"/>
+  </signal>
+  <signal name="PropertyListUpdated">
+   <arg name="property_list" type="a{say}"/>
+  </signal>
+ </interface>
+</node>

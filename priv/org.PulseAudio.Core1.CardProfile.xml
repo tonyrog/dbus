@@ -1,0 +1,13 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+ <interface name="org.PulseAudio.Core1.CardProfile">
+  <property name="Index" type="u" access="read"/>
+  <property name="Name" type="s" access="read"/>
+  <property name="Description" type="s" access="read"/>
+  <property name="Sinks" type="u" access="read"/>
+  <property name="Sources" type="u" access="read"/>
+  <property name="Priority" type="u" access="read"/>
+  <property name="Available" type="b" access="read"/>
+ </interface>
+</node>

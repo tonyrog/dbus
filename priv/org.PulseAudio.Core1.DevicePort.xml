@@ -1,0 +1,14 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+ <interface name="org.PulseAudio.Core1.DevicePort">
+  <property name="Index" type="u" access="read"/>
+  <property name="Name" type="s" access="read"/>
+  <property name="Description" type="s" access="read"/>
+  <property name="Priority" type="u" access="read"/>
+  <property name="Available" type="u" access="read"/>
+  <signal name="AvailableChanged">
+   <arg name="available" type="u"/>
+  </signal>
+ </interface>
+</node>

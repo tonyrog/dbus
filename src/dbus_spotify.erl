@@ -7,16 +7,28 @@
 
 -module(dbus_spotify).
 
--compile(export_all).
+-export([open/1]).
+-export([open1/1]).
 
-open(Uri) ->
+%% check codings playlist ...?
+open1(Track) when is_list(Track) ->
     {ok, C} = dbus_connection:open(session),
     Fs = [{path,"/org/mpris/MediaPlay2"},
 	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    Uri = "string:spotify:track:"++Track,
     org_mpris_mediaplayer2_player:open_uri(C, Fs, Uri).
 
-open_url(Url) ->
-    {ok, C} = dbus_connection:open(session),
-    Fs = [{path,"/io/snapcraft/Launcher"},
-	  {destination, "io.snapcraft.Launcher"}],
-    io_snapcraft_launcher:open_url(C, Fs, Url).
+open(Track) when is_list(Track) -> 
+    Uri = "string:spotify:track:"++Track,
+    Destination = "org.mpris.MediaPlayer2.spotify",
+    Interface   = "org.mpris.MediaPlayer2.Player",
+    ObjectPath  = "/org/mpris/MediaPlayer2",
+    Call        = Interface ++ ".OpenUri",
+    os:cmd(string:join(
+	     ["dbus-send",
+	      "--session",
+	      "--print-reply",
+	      "--dest="++Destination,
+	      ObjectPath,
+	      Call,
+	      Uri], " ")).

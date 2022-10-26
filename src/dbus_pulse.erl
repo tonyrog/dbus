@@ -1,17 +1,17 @@
 %%% @author Tony Rogvall <tony@rogvall.se>
 %%% @copyright (C) 2022, Tony Rogvall
 %%% @doc
-%%%    Manual Pulse/DBUS interface! where is the xml file????
 %%%    https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/DBus/#controlapi
 %%% @end
 %%% Created : 14 Sep 2022 by Tony Rogvall <tony@rogvall.se>
 
 -module(dbus_pulse).
 
--compile(export_all).
 -export([address/0, address/1]).
 -export([i/0, i/1]).
 -export([set_profile/2, set_volume/2]).
+
+-compile(export_all).
 
 -include("../include/dbus.hrl").
 
@@ -24,9 +24,24 @@
 -define(IFPROF, ?INTERFACE++".CardProfile").
 -define(IFDEV,  ?INTERFACE++".Device").
 -define(IFDEVPORT,  ?INTERFACE++".DevicePort").
--define(CARD(X), filename:join(?ROOT, X)).
--define(DEV(X), filename:join(?ROOT, X)).
--define(DEVPORT(X,Y), filename:join([?ROOT, X, Y])).
+-define(CARD(Card), filename:join(?ROOT,(Card))).
+-define(CARDPROF(Card,Prof), filename:join([?ROOT,(Card),(Prof)])).
+-define(DEV(Dev), filename:join(?ROOT,(Dev))).
+-define(DEVPORT(Dev,Port), filename:join([?ROOT,(Dev),(Port)])).
+
+-define(PA_SAMPLE_U8,   0).
+-define(PA_SAMPLE_ALAW, 1).
+-define(PA_SAMPLE_ULAW, 2).
+-define(PA_SAMPLE_S16LE, 3).
+-define(PA_SAMPLE_S16BE, 4).
+-define(PA_SAMPLE_FLOAT32LE, 5).
+-define(PA_SAMPLE_FLOAT32BE, 6).
+-define(PA_SAMPLE_S32LE, 7).
+-define(PA_SAMPLE_S32BE, 8).
+-define(PA_SAMPLE_S24LE, 9).
+-define(PA_SAMPLE_S24BE, 10).
+-define(PA_SAMPLE_S24_32LE, 11).
+-define(PA_SAMPLE_S24_32BE, 12).
 
 address() ->
     address(session).
@@ -49,26 +64,48 @@ address_(C) ->
 %% speical signal handling 
 listen_for_signal(Connection,Fs,Signal,Objects) ->
     {ok,Ref} = dbus_connection:subscribe_to_signal(Connection,Signal),
-    dbus_connection:call(Connection,
-			 [{interface, ?INTERFACE},
-			  {member,"ListenForSignal"} | Fs],
-			 "sao", [Signal,Objects]),
+    org_pulseaudio_core1:listen_for_signal(Connection,Fs,Signal,Objects),
     {ok,Ref}.
 
 stop_listening_for_signal(Connection,Fs,Ref) ->
     case dbus_connection:remove_subscrition(Connection, Ref) of
 	{ok,{Interface,Member}} ->
 	    %% fixme??? integrate better in dbus_connection server????
-	    dbus_connection:call(Connection,
-				 [{interface,?INTERFACE},
-				  {member,"StopListenForSignal"} | Fs],
-				 "s",
-				 [Interface++"."++Member]);
+	    Signal = Interface++"."++Member,
+	    org_pulseaudio_core1:stop_listening_for_signal(Connection,Fs,Signal);
 	ok -> %% ok but signal is still used
 	    ok;
 	{error, enoent} ->  %% already removed
 	    ok
     end.
+
+introspect() ->
+    {ok, Xml} = dbus:introspect(address(), ?ROOT, ?INTERFACE),
+    io:put_chars(Xml).
+
+introspect_card() ->
+    introspect_card(card0).
+introspect_card(Card) ->
+    {ok, Xml} = dbus:introspect(address(), ?CARD(Card), ?IFCARD),
+    io:put_chars(Xml).
+
+introspect_card_profile() ->
+    introspect_card_profile(card0,profile0).
+introspect_card_profile(Card,Prof) ->
+    {ok, Xml} = dbus:introspect(address(), ?CARDPROF(Card,Prof), ?IFPROF),
+    io:put_chars(Xml).
+
+introspect_device() ->
+    introspect_device(sink1).
+introspect_device(Dev) ->
+    {ok, Xml} = dbus:introspect(address(), ?DEV(Dev), ?IFDEV),
+    io:put_chars(Xml).
+
+introspect_device_port() ->
+    introspect_device_port(sink1, port1).
+introspect_device_port(Dev,Port) ->
+    {ok, Xml} = dbus:introspect(address(), ?DEVPORT(Dev,Port), ?IFDEVPORT),
+    io:put_chars(Xml).
 
 %%%%%%%%%%%%%
 %% Top Level
@@ -152,12 +189,9 @@ get_card_property_list(Connection, Card) ->
 
 %% Methods
 get_card_profile_by_name(Connection, Card, Name) ->
-    dbus_connection:call(Connection,
-			 [{interface, ?INTERFACE},
-			  {path, Card},
-			  {member,"GetProfileByName"}],
-			 "s", [Name]).
-
+    org_pulseaudio_core1_card:get_profile_by_name(Connection,
+						  [{path,Card}],
+						  Name).
 %% Properties
 get_card_profile_index(Connection, Profile) ->
     get_card_profile_prop(Connection,[{path,Profile}],"Index").
@@ -306,36 +340,37 @@ i(Address) ->
     io:format("connect to pulse @ ~p\n", [PulseAddress]),
     {ok,Connection} = dbus_connection:open(PulseAddress),
     %%Fs = [{path, "/org/pulseaudio/core1"},{destination, "org.PulseAudio1"}],
-    {ok,Name} = get_name(Connection),
-    {ok,Version} = get_version(Connection),    
-    {ok,Cards} = get_cards(Connection),
-    {ok,Sinks} = get_sinks(Connection),
+    dump_pulse_properties(Connection, 0),
+%%    {ok,Name}    = get_name(Connection),
+%%    {ok,Version} = get_version(Connection),    
+    {ok,Cards}   = get_cards(Connection),
+    {ok,Sinks}   = get_sinks(Connection),
     {ok,Sources} = get_sources(Connection),
     {ok,Streams} = get_playback_streams(Connection),
-    io:format("Name = ~p\n", [Name]),
-    io:format("Version = ~p\n", [Version]),
-    io:format("Cards = ~p\n", [Cards]),
-    io:format("Sinks = ~p\n", [Sinks]), 
-    io:format("Sources = ~p\n", [Sources]), 
-    io:format("Streams = ~p\n", [Streams]), 
+%%    io:format("name: ~p\n", [Name]),
+%%    io:format("version: ~p\n", [Version]),
+    io:format("cards: ~p\n", [Cards]),
+    io:format("sinks: ~p\n", [Sinks]), 
+    io:format("sources: ~p\n", [Sources]), 
+    io:format("streams: ~p\n", [Streams]), 
     %% Cards
     lists:foreach(
       fun(Card) ->
-	      io:format("Card ~p\n", [Card]),
-	      dump_pulse_card(Connection, Card)
+	      io:format("[CARD ~p]\n", [Card]),
+	      dump_card(Connection, Card, 1)
       end, Cards),
 
     %% Sinks
     lists:foreach(
       fun(Sink) ->
-	      io:format("[Sink ~s]\n", [Sink]),
-	      dump_pulse_device(Connection, Sink)
+	      io:format("[SINK ~s]\n", [Sink]),
+	      dump_device(Connection, Sink, 1)
       end, Sinks),
     %% Sources
     lists:foreach(
       fun(Source) ->
-	      io:format("[Source ~s]\n", [Source]),
-	      dump_pulse_device(Connection, Source)
+	      io:format("[SOURCE ~s]\n", [Source]),
+	      dump_device(Connection, Source, 1)
       end, Sources),
     dbus_connection:close(Connection).
 
@@ -350,25 +385,56 @@ card_properties() ->
      sources,
      profiles,
      active_profile,
-     property_list
+     {property_list, fun (V) -> V end, fun cprop/1}
     ].
 
-dump_pulse_card(Connection, Card) ->
+indent(I) ->
+    lists:duplicate(2*I, $\s).
+
+dump_card(Connection, Card, I) ->
     lists:foreach(
       fun(Prop) ->
-	      Value = get_property(card,Prop,Connection,Card),
-	      io:format("~s: ~p\n", [Prop, Value]),
-	      if Prop =:= profiles ->
-		      lists:foreach(
-			fun(Profile) ->
-				dump_pulse_card_profile(Connection,Profile)
-			end, Value);
-		 true ->
-		      ok
+	      case get_property(card,Prop,Connection,Card) of
+		  {error,_} -> nope;
+		  {Name,Value} ->
+		      io:format("~s~s: ~p\n", [indent(I),Name,Value]),
+		      if Prop =:= profiles ->
+			      lists:foreach(
+				fun(Profile) ->
+					io:format("~s[PROFILE ~p]\n",
+						  [indent(I),Profile]),
+					dump_card_profile(Connection,Profile,
+							  I+1)
+				end, Value);
+			 true ->
+			      ok
+		      end
 	      end
       end, card_properties()).
 
+pulse_properties() ->
+    [
+     name,
+     version,
+     is_local,
+     user_name,
+     host_name,
+     default_channels,
+     {default_sample_format,fun from_alsa_format/1, fun to_alsa_format/1},
+     default_sample_rate,
+     fallback_source
+    ].
 
+dump_pulse_properties(Connection, I) ->
+    lists:foreach(
+      fun(Prop) ->
+	      case get_property(undefined,Prop,Connection,"") of
+		  {error,_} -> nope;
+		  {Name,Value} ->
+		      io:format("~s~s: ~p\n", [indent(I),Name,Value])
+	      end
+      end, pulse_properties()).
+     
 profile_properties() ->
     [
      index,
@@ -379,12 +445,14 @@ profile_properties() ->
      priority
     ].
 
-dump_pulse_card_profile(Connection, Profile) ->
-    io:format("Profile ~p\n", [Profile]),
+dump_card_profile(Connection, Profile, I) ->
     lists:foreach(
       fun(Prop) ->
-	      Value = get_property(card_profile,Prop,Connection,Profile),
-	      io:format("  ~s: ~p\n", [Prop, Value])
+	      case get_property(card_profile,Prop,Connection,Profile) of
+		  {error,_} -> nope;
+		  {Name,Value} ->
+		      io:format("~s~s: ~p\n", [indent(I),Name,Value])
+	      end
       end, profile_properties()).
 
 device_properties() ->
@@ -393,7 +461,7 @@ device_properties() ->
      driver,
      owner_module,
      card,
-     sample_format,
+     {sample_format,fun from_alsa_format/1, fun to_alsa_format/1},
      sample_rate,
      channels,
      volume,
@@ -412,30 +480,75 @@ device_properties() ->
      state,
      ports,
      active_port,
-     property_list
+     {property_list, fun(V) -> V end, fun cprop/1}
     ].
 
-dump_pulse_device(Connection, Dev) ->
+dump_device(Connection, Dev, I) ->
     lists:foreach(
       fun(Prop) ->
-	      Value = get_property(device,Prop,Connection,Dev),
-	      io:format("~s: ~p\n",[Prop, Value])
+	      case get_property(device,Prop,Connection,Dev) of
+		  {error,_} -> nope;
+		  {Name,Value} ->
+		      io:format("~s~s: ~p\n",[indent(I),Name,Value])
+	      end
       end, device_properties()).
 
-get_property(Kind,property_list,Connection, Path) ->
-    Value = get_prop_(Kind,property_list,Connection,Path),
-    cprop(Value);
 get_property(Kind, Prop, Connection, Path) ->
     get_prop_(Kind, Prop, Connection, Path).
 
 get_prop_(Kind, Prop, Connection, Path) ->
-    Func = list_to_atom("get_"++atom_to_list(Kind)++"_"++atom_to_list(Prop)),
-    case apply(dbus_pulse, Func, [Connection, Path]) of
-	{ok, Value} ->
-	    Value;
-	Error ->
-	    Error
+    {PropName,Decode} = 
+	case Prop of
+	    {PropNm,_Enc,Dec} -> {PropNm,Dec};
+	    PropNm when is_atom(PropNm) -> {PropNm, fun(V) -> V end}
+	end,
+    {Func,Args} = if Kind =:= undefined ->
+			  {list_to_atom("get_"++atom_to_list(PropName)),
+			   []};
+		     true ->
+			  {list_to_atom("get_"++atom_to_list(Kind)++"_"++
+					    atom_to_list(PropName)),
+			   [Path]}
+		  end,
+    case apply(dbus_pulse, Func, [Connection | Args]) of
+	{ok, Value} -> {PropName,Decode(Value)};
+	Error -> Error
     end.
+
+to_alsa_format(Value) ->
+    maps:get(Value, 
+	     #{ ?PA_SAMPLE_U8 => u8,
+		?PA_SAMPLE_ALAW => a_law,
+		?PA_SAMPLE_ULAW => mu_law,
+		?PA_SAMPLE_S16LE => s16_le,
+		?PA_SAMPLE_S16BE => s16_be,
+		?PA_SAMPLE_FLOAT32LE => float_le,
+		?PA_SAMPLE_FLOAT32BE => float_be,
+		?PA_SAMPLE_S32LE => s32_le,
+		?PA_SAMPLE_S32BE => s32_be, 
+		?PA_SAMPLE_S24LE => s24_3le,
+		?PA_SAMPLE_S24BE => s24_3be,
+		?PA_SAMPLE_S24_32LE => s24_le,
+		?PA_SAMPLE_S24_32BE => s24_be
+	      }, Value).
+
+from_alsa_format(Format) ->
+    maps:get(Format, 
+	     #{ u8 => ?PA_SAMPLE_U8,
+		a_law => ?PA_SAMPLE_ALAW,
+		mu_law => ?PA_SAMPLE_ULAW,
+		s16_le => ?PA_SAMPLE_S16LE,
+		s16_be => ?PA_SAMPLE_S16BE,
+		float_le => ?PA_SAMPLE_FLOAT32LE,
+		float_be => ?PA_SAMPLE_FLOAT32BE,
+		s32_le => ?PA_SAMPLE_S32LE,
+		s32_be => ?PA_SAMPLE_S32BE, 
+		s24_3le => ?PA_SAMPLE_S24LE,
+		s24_3be => ?PA_SAMPLE_S24BE,
+		s24_le  => ?PA_SAMPLE_S24_32LE,
+		s24_be => ?PA_SAMPLE_S24_32BE
+	      }).
+    
 
 cprop(Map) when is_map(Map) ->
     maps:map(fun(_K,V) -> cstring(V) end, Map).
@@ -488,27 +601,27 @@ monitor_loop(C, Refs,I) ->
 	    case {Fds#dbus_field.interface,Fds#dbus_field.member} of
 		{"org.PulseAudio.Core1", "NewCard"} ->
 		    [Card|_] = Message,
-		    io:format("NEW CARD: ~p\n", [Card]),
-		    dump_pulse_card(C, Card),
+		    io:format("[NEW CARD: ~p]\n", [Card]),
+		    dump_card(C, Card, 1),
 		    {ok,Sinks} = get_card_sinks(C, Card),
 		    {ok,Sources} = get_card_sources(C, Card),
 		    %% Sinks
 		    lists:foreach(
 		      fun(Sink) ->
-			      io:format("[Sink ~s]\n", [Sink]),
-			      dump_pulse_device(C, Sink)
+			      io:format("[SINK ~s]\n", [Sink]),
+			      dump_device(C, Sink,2)
 		      end, Sinks),
 		    %% Sources
 		    lists:foreach(
 		      fun(Source) ->
-			      io:format("[Source ~s]\n", [Source]),
-			      dump_pulse_device(C, Source)
+			      io:format("[SOURCE ~s]\n", [Source]),
+			      dump_device(C, Source,2)
 		      end, Sources),		    
 		    io:format("-------------------\n"),
 		    monitor_loop(C,Refs,I);
 		{"org.PulseAudio.Core1", "CardRemoved"} ->
 		    [Card|_] = Message,
-		    io:format("CARD REMOVED: ~p\n", [Card]),
+		    io:format("[REMOVE CARD: ~p]\n", [Card]),
 		    io:format("-------------------\n"),
 		    monitor_loop(C,Refs,I);
 		_ ->

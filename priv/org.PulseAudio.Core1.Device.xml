@@ -1,0 +1,54 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+ <interface name="org.PulseAudio.Core1.Device">
+  <method name="Suspend">
+   <arg name="suspend" type="b" direction="in"/>
+  </method>
+  <method name="GetPortByName">
+   <arg name="name" type="s" direction="in"/>
+   <arg name="port" type="o" direction="out"/>
+  </method>
+  <property name="Index" type="u" access="read"/>
+  <property name="Name" type="s" access="read"/>
+  <property name="Driver" type="s" access="read"/>
+  <property name="OwnerModule" type="o" access="read"/>
+  <property name="Card" type="o" access="read"/>
+  <property name="SampleFormat" type="u" access="read"/>
+  <property name="SampleRate" type="u" access="read"/>
+  <property name="Channels" type="au" access="read"/>
+  <property name="Volume" type="au" access="readwrite"/>
+  <property name="HasFlatVolume" type="b" access="read"/>
+  <property name="HasConvertibleToDecibelVolume" type="b" access="read"/>
+  <property name="BaseVolume" type="u" access="read"/>
+  <property name="VolumeSteps" type="u" access="read"/>
+  <property name="Mute" type="b" access="readwrite"/>
+  <property name="HasHardwareVolume" type="b" access="read"/>
+  <property name="HasHardwareMute" type="b" access="read"/>
+  <property name="ConfiguredLatency" type="t" access="read"/>
+  <property name="HasDynamicLatency" type="b" access="read"/>
+  <property name="Latency" type="t" access="read"/>
+  <property name="IsHardwareDevice" type="b" access="read"/>
+  <property name="IsNetworkDevice" type="b" access="read"/>
+  <property name="State" type="u" access="read"/>
+  <property name="Ports" type="ao" access="read"/>
+  <property name="ActivePort" type="o" access="readwrite"/>
+  <property name="PropertyList" type="a{say}" access="read"/>
+  <signal name="VolumeUpdated">
+   <arg name="volume" type="au"/>
+  </signal>
+  <signal name="MuteUpdated">
+   <arg name="muted" type="b"/>
+  </signal>
+  <signal name="StateUpdated">
+   <arg name="state" type="u"/>
+  </signal>
+  <signal name="ActivePortUpdated">
+   <arg name="port" type="o"/>
+  </signal>
+  <signal name="PropertyListUpdated">
+   <arg name="property_list" type="a{say}"/>
+  </signal>
+ </interface>
+
+</node>

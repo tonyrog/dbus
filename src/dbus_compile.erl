@@ -80,7 +80,13 @@ private_files() ->
 	    F <-
 		[%% media
 		 "org.mpris.MediaPlayer2.Player.xml",
-		 "io.snapcraft.Launcher.xml"
+		 "io.snapcraft.Launcher.xml",
+		 "org.PulseAudio.Core1.xml",
+		 "org.PulseAudio.Core1.Card.xml",
+		 "org.PulseAudio.Core1.CardProfile.xml",
+		 "org.PulseAudio.Core1.Device.xml",
+		 "org.PulseAudio.Core1.Sink.xml",
+		 "org.PulseAudio.Core1.DevicePort.xml"
 		]
 	].
 
