@@ -9,16 +9,75 @@
 
 -export([open/1]).
 -export([open1/1]).
+-export([raise/0, quit/0]).
+-export([play/0, pause/0]).
+-export([stop/0, next/0, previous/0, seek/1, set_position/2]).
 %%
 -export([test/0]).
 
 
 open1(Data) ->
     {ok, C} = dbus_connection:open(session),
-    Fs = [{path,"/org/mpris/MediaPlay2"},
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
 	  {destination, "org.mpris.MediaPlayer2.spotify"}],
     Uri = object(Data),
     org_mpris_mediaplayer2_player:open_uri(C, Fs, Uri).
+
+play() ->
+    {ok, C} = dbus_connection:open(session),
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
+	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    org_mpris_mediaplayer2_player:play(C, Fs).    
+
+pause() ->
+    {ok, C} = dbus_connection:open(session),
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
+	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    org_mpris_mediaplayer2_player:pause(C, Fs).
+
+stop() ->
+    {ok, C} = dbus_connection:open(session),
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
+	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    org_mpris_mediaplayer2_player:stop(C, Fs).
+
+next() ->
+    {ok, C} = dbus_connection:open(session),
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
+	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    org_mpris_mediaplayer2_player:next(C, Fs).
+
+previous() ->
+    {ok, C} = dbus_connection:open(session),
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
+	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    org_mpris_mediaplayer2_player:previous(C, Fs).
+
+seek(Offset) ->
+    {ok, C} = dbus_connection:open(session),
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
+	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    org_mpris_mediaplayer2_player:seek(C, Fs, Offset).
+
+set_position(TrackId,Postion) ->
+    {ok, C} = dbus_connection:open(session),
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
+	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    org_mpris_mediaplayer2_player:set_position(C, Fs, TrackId,Postion).    
+
+raise() ->
+    {ok, C} = dbus_connection:open(session),
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
+	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    org_mpris_mediaplayer2:raise(C, Fs).
+
+quit() ->
+    {ok, C} = dbus_connection:open(session),
+    Fs = [{path,"/org/mpris/MediaPlayer2"},
+	  {destination, "org.mpris.MediaPlayer2.spotify"}],
+    org_mpris_mediaplayer2:quit(C, Fs).
+
+    
 
 open(Data) -> %% require dbus-utils:  dbus-send
     Uri = object(Data),

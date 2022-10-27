@@ -2,6 +2,10 @@
 %%% @copyright (C) 2022, Tony Rogvall
 %%% @doc
 %%%    https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/DBus/#controlapi
+%%%    enable dbus protocol for pulse:
+%%%          add line:
+%%%            load-module module-dbus-protocol
+%%%          to file /etc/pulse/default.pa
 %%% @end
 %%% Created : 14 Sep 2022 by Tony Rogvall <tony@rogvall.se>
 
