@@ -23,6 +23,8 @@
 -module(dbus).
 
 -compile(export_all).
+-export([i/0, i/1]).
+-export([list_names/0, list_names/1]).
 
 -include("../include/dbus.hrl").
 
@@ -67,8 +69,9 @@ get_all(C, Path, Interface) ->
     Fs = [{path,Path}],
     org_freedesktop_dbus_properties:get_all(C,Fs,Interface).
 
-i() ->
-    case list_names() of
+i() -> i(session).
+i(Address) ->
+    case list_names(Address) of
 	{ok, List} ->
 	    lists:foreach(
 	      fun(Interface) -> 

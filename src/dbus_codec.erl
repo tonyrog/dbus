@@ -324,10 +324,13 @@ encode_double(X, Y, big) ->
     {<<?PAD(Pad),X:64/big-float>>, 8+Pad}.
 
 encode_string(X, Y, MaxLen, Endian) ->
-    X1 = if is_atom(X) -> atom_to_list(X); 
-	    is_list(X) -> X 
-	 end,
-    Bytes = unicode:characters_to_binary(X1),
+    Bytes = if is_atom(X) ->
+		    unicode:characters_to_binary(atom_to_list(X));
+	       is_list(X) ->
+		    unicode:characters_to_binary(X);
+	       is_binary(X) ->
+		    X  %% assume utf8
+	    end,
     Len   = byte_size(Bytes),
     if Len > MaxLen ->
 	    erlang:error(string_too_long);

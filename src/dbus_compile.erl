@@ -86,7 +86,8 @@ private_files() ->
 		 "org.PulseAudio.Core1.CardProfile.xml",
 		 "org.PulseAudio.Core1.Device.xml",
 		 "org.PulseAudio.Core1.Sink.xml",
-		 "org.PulseAudio.Core1.DevicePort.xml"
+		 "org.PulseAudio.Core1.DevicePort.xml",
+		 "org.bluez.AgentManager1.xml"
 		]
 	].
 

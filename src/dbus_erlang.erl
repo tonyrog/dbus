@@ -258,7 +258,7 @@ handle_erlang_call(Connection,H,[Server,Request], State) ->
 			"NoServer", "Server is not registered");
        true ->
 	    %% FIXME: we can do this "better"? by spliting
-	    %% the gener_server:call in two sides and handle
+	    %% the gen_server:call in two sides and handle
 	    %% the returns manually!
 	    spawn(
 	      fun() ->

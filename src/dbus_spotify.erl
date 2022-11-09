@@ -8,15 +8,15 @@
 -module(dbus_spotify).
 
 -export([open/1]).
--export([open1/1]).
 -export([raise/0, quit/0]).
 -export([play/0, pause/0]).
 -export([stop/0, next/0, previous/0, seek/1, set_position/2]).
 %%
 -export([test/0]).
+-export([open_dbus_send/1]).
 
 
-open1(Data) ->
+open(Data) ->
     {ok, C} = dbus_connection:open(session),
     Fs = [{path,"/org/mpris/MediaPlayer2"},
 	  {destination, "org.mpris.MediaPlayer2.spotify"}],
@@ -77,9 +77,8 @@ quit() ->
 	  {destination, "org.mpris.MediaPlayer2.spotify"}],
     org_mpris_mediaplayer2:quit(C, Fs).
 
-    
-
-open(Data) -> %% require dbus-utils:  dbus-send
+%% test     
+open_dbus_send(Data) -> %% require dbus-utils:  dbus-send
     Uri = object(Data),
     Destination = "org.mpris.MediaPlayer2.spotify",
     Interface   = "org.mpris.MediaPlayer2.Player",
