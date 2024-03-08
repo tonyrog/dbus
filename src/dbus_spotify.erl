@@ -15,7 +15,15 @@
 %%
 -compile(export_all).
 -export([test/0]).
--export([open_dbus_send/1]).
+%% dbus-send
+-export([dbus_send_open_uri/1]).
+-export([dbus_send_play/0]).
+-export([dbus_send_pause/0]).
+-export([dbus_send_raise/0]).
+-export([dbus_send_quit/0]).
+
+
+
 
 -type dbus_addr() :: pid() | string() | session |
       {Address::string(),AuthType::external|cookie|detect,
@@ -201,7 +209,7 @@ call(Address, Fs, Fun, Args) ->
     R.
 
 %% test     
-open_dbus_send(Data) -> %% require dbus-utils:  dbus-send
+dbus_send_open_uri(Data) -> %% require dbus-utils:  dbus-send
     Uri = object(Data),
     Destination = ?DESTINATION,
     Interface   = "org.mpris.MediaPlayer2.Player",
@@ -215,6 +223,39 @@ open_dbus_send(Data) -> %% require dbus-utils:  dbus-send
 	      ObjectPath,
 	      Call,
 	      Uri], " ")).
+
+dbus_send_play() ->
+    dbus_send_player_call("Play", "").
+
+dbus_send_pause() ->
+    dbus_send_player_call("Pause", "").
+
+dbus_send_raise() ->
+    dbus_send_call("", "Raise", "").
+
+dbus_send_quit() ->
+    dbus_send_call("", "Quit", "").
+
+dbus_send_player_call(Call, Args) ->
+    dbus_send_call(".Player", Call, Args).
+
+dbus_send_call(IFace, Call, Args) ->
+    Destination = ?DESTINATION,
+    Interface   = "org.mpris.MediaPlayer2"++IFace,
+    ObjectPath  = ?MPLAYER,
+    InterfaceCall = Interface ++ [$.|Call],
+    os:cmd(string:join(
+	     ["dbus-send",
+	      "--session",
+	      "--print-reply",
+	      "--dest="++Destination,
+	      ObjectPath,
+	      InterfaceCall,
+	      Args], " ")).
+    
+
+
+
 
 object(Data) ->
     case string:trim(Data) of
@@ -266,19 +307,24 @@ test(Url) ->
     ok.
 
 test_play_list() ->
-  test_play_list(10000).
+    test_play_list(10000).
 test_play_list(Interval) ->
-  {ok,Con} = dbus_connection:open(session),
-  lists:foreach(
-    fun(Uri) ->
-      open_uri(Con, object(Uri)),
-      timer:sleep(3000),
-      play(Con),
-      timer:sleep(Interval)
-    end, play_list()),
-  stop(Con),
-  dbus_connection:close(Con),
-  ok.
+    {ok,Con} = dbus_connection:open(session),
+    raise(Con),
+    pause(Con),
+    lists:foreach(
+      fun(Uri) ->
+	      open_uri(Con, object(Uri)),
+	      timer:sleep(3000),
+	      raise(Con),
+	      play(Con),
+	      timer:sleep(Interval),
+	      raise(Con),
+	      play(Con)
+      end, play_list()),
+    stop(Con),
+    dbus_connection:close(Con),
+    ok.
   
 
 play_list() ->
